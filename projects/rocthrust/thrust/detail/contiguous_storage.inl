@@ -32,10 +32,11 @@
 #include <thrust/detail/allocator/fill_construct_range.h>
 #include <thrust/detail/allocator/value_initialize_range.h>
 #include <thrust/detail/contiguous_storage.h>
-#include <thrust/detail/nv_target.h>
 
 #include <stdexcept> // for std::runtime_error
 #include <utility> // for use of std::swap in the WAR below
+
+#include <thrust/detail/libcxx_wrapper/nv/target>
 
 THRUST_NAMESPACE_BEGIN
 
