@@ -18,12 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#ifndef ROCRAND_BENCHMARK_ROCRAND_UTILS_HPP_
-#define ROCRAND_BENCHMARK_ROCRAND_UTILS_HPP_
-
-#include "benchmark_utils.hpp"
-
-#include <benchmark/benchmark.h>
+#pragma once
 
 #include <rocrand/rocrand.h>
 
@@ -42,15 +37,6 @@
         }                                                                                      \
     }                                                                                          \
     while(0)
-
-inline void add_common_benchmark_rocrand_info()
-{
-    int version;
-    ROCRAND_CHECK(rocrand_get_version(&version));
-    benchmark::AddCustomContext("rocrand_version", std::to_string(version));
-
-    add_common_benchmark_info();
-}
 
 inline std::string engine_name(const rocrand_rng_type rng_type)
 {
@@ -81,10 +67,25 @@ inline std::string engine_name(const rocrand_rng_type rng_type)
     // clang-format on
 }
 
+inline size_t next_power2(size_t x)
+{
+    size_t power = 1;
+    while(power < x)
+    {
+        power *= 2;
+    }
+    return power;
+}
+
 struct benchmark_config
 {
     std::size_t bytes{};
     double      lambda{};
 };
 
-#endif // ROCRAND_BENCHMARK_ROCRAND_UTILS_HPP_
+PRIMBENCH_REGISTER_TYPE(unsigned int, "uint")
+PRIMBENCH_REGISTER_TYPE(unsigned char, "uchar")
+PRIMBENCH_REGISTER_TYPE(unsigned short, "ushort")
+PRIMBENCH_REGISTER_TYPE(__half, "half")
+PRIMBENCH_REGISTER_TYPE(float, "float")
+PRIMBENCH_REGISTER_TYPE(double, "double")

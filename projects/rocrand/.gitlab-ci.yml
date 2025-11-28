@@ -394,7 +394,6 @@ test:nvcc:
     - cd $CI_PROJECT_DIR/build
     - ./benchmark/benchmark_rocrand_host_api
       --size $[ 512*1024*1024 ]
-      --byte-size
       --trials 5
       --benchmark_out_format=json
       --benchmark_out=rocrand_benchmarks_${GPU_TARGET}_${CI_JOB_ID}.json

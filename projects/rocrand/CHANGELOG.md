@@ -13,7 +13,9 @@ Documentation for rocRAND is available at
 ### Changed
 
 * Updated `benchmark_rocrand_device_api` to use occupancy-based tooling to increase benchmark workloads.
-
+* Benchmarking now requires [AMD SMI](https://rocm.docs.amd.com/projects/amdsmi/en/latest/) to be installed.
+  * rocRAND now uses the new single-header library 'primbench' for benchmarks, rather than Google Benchmark. primbench requires AMD SMI.
+  * See `shared/primbench/README.md` for primbench its documentation.
 
 ## rocRAND 4.2.0 for ROCm 7.2
 
