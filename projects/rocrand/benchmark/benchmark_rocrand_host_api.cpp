@@ -219,9 +219,15 @@ private:
     QUEUE(float, engine, ordering, DISTRIBUTION_LOG_NORMAL);       \
     QUEUE(double, engine, ordering, DISTRIBUTION_LOG_NORMAL);
 
-#define QUEUE_PSEUDO(engine)                                     \
-    QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DEFAULT) \
-    QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DYNAMIC)
+// Quoting programmers-guide.rst:
+// ``ROCRAND_ORDERING_PSEUDO_DYNAMIC`` is not supported for generators
+// created with ``rocrand_create_generator_host``.
+#define QUEUE_PSEUDO(engine)                                         \
+    QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DEFAULT)     \
+    if(!benchmark_host)                                              \
+    {                                                                \
+        QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DYNAMIC) \
+    }
 
 #define QUEUE_QUASI(engine) QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_QUASI_DEFAULT)
 
