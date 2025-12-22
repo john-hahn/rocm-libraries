@@ -13,10 +13,10 @@ jobs:
     runs-on: azure-linux-scale-rocm
     steps:
       - name: Checkout rocm-libraries
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout TheRock
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ROCm/TheRock
           path: TheRock
