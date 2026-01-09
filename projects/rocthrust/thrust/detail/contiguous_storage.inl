@@ -36,7 +36,6 @@
 #include <stdexcept> // for std::runtime_error
 #include <utility> // for use of std::swap in the WAR below
 
-#include <thrust/detail/libcxx_wrapper/nv/target>
 
 THRUST_NAMESPACE_BEGIN
 
