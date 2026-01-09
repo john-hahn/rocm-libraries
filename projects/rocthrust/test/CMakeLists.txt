@@ -342,6 +342,10 @@ add_executable(generate_resource_spec ${CMAKE_SOURCE_DIR}/test/generate_resource
 set_target_properties(generate_resource_spec PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 target_link_libraries(generate_resource_spec PRIVATE hip::host)
 
+target_compile_options(generate_resource_spec
+  PRIVATE -Wno-unused-command-line-argument
+)
+
 # Install the executable as PROGRAMS (rather than TARGETS)
 # since we want to put it in the correct DESTINATION.
 rocm_install(
