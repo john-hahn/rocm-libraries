@@ -35,6 +35,7 @@ enum distribution
     DISTRIBUTION_UNIFORM,
     DISTRIBUTION_NORMAL,
     DISTRIBUTION_LOG_NORMAL,
+    DISTRIBUTION_POISSON,
 };
 
 constexpr const char* distribution_name(distribution distribution)
@@ -45,6 +46,7 @@ constexpr const char* distribution_name(distribution distribution)
         case DISTRIBUTION_UNIFORM: return "uniform";
         case DISTRIBUTION_NORMAL: return "normal";
         case DISTRIBUTION_LOG_NORMAL: return "log_normal";
+        case DISTRIBUTION_POISSON: return "poisson";
     }
 }
 
@@ -67,29 +69,38 @@ using generate_func_type = std::function<rocrand_status(rocrand_generator, T*, s
 template<typename T, distribution Distribution>
 struct rocrand_host_api_benchmark : public primbench::benchmark_interface
 {
-    rocrand_host_api_benchmark(rocrand_rng_type engine,
-                               rocrand_ordering ordering,
-                               size_t           dimensions,
-                               size_t           offset,
-                               bool             benchmark_host)
+    constexpr rocrand_host_api_benchmark(rocrand_rng_type      engine,
+                                         rocrand_ordering      ordering,
+                                         size_t                dimensions,
+                                         size_t                offset,
+                                         bool                  benchmark_host,
+                                         std::optional<double> poisson_lambda = std::nullopt)
         : m_engine(engine)
         , m_ordering(ordering)
         , m_dimensions(dimensions)
         , m_offset(offset)
         , m_benchmark_host(benchmark_host)
+        , m_poisson_lambda(poisson_lambda)
     {}
 
     primbench::json meta() const override
     {
-        return primbench::json{}
-            .add("algo", "rocrand_host_api")
-            .add("type", primbench::name<T>())
-            .add("engine", engine_name(m_engine))
-            .add("ordering", ordering_name(m_ordering))
-            .add("distribution", distribution_name(Distribution))
-            .add("dimensions", m_dimensions)
-            .add("offset", m_offset)
-            .add("benchmark_host", m_benchmark_host);
+        auto json = primbench::json{}
+                        .add("algo", "rocrand_host_api")
+                        .add("type", primbench::name<T>())
+                        .add("engine", engine_name(m_engine))
+                        .add("ordering", ordering_name(m_ordering))
+                        .add("distribution", distribution_name(Distribution))
+                        .add("dimensions", m_dimensions)
+                        .add("offset", m_offset)
+                        .add("benchmark_host", m_benchmark_host);
+
+        if constexpr(Distribution == DISTRIBUTION_POISSON)
+        {
+            json.add("poisson_lambda", *m_poisson_lambda);
+        }
+
+        return json;
     }
 
     void run(primbench::state& state) override
@@ -164,6 +175,8 @@ struct rocrand_host_api_benchmark : public primbench::benchmark_interface
                 return rocrand_generate_log_normal(generator, data, items, 0.0f, 1.0f);
             else if constexpr(std::is_same_v<T, double> && Distribution == DISTRIBUTION_LOG_NORMAL)
                 return rocrand_generate_log_normal_double(generator, data, items, 0.0, 1.0);
+            else if constexpr(Distribution == DISTRIBUTION_POISSON)
+                return rocrand_generate_poisson(generator, data, items, *m_poisson_lambda);
             else
                 static_assert(sizeof(T) == 0, "Missing a constexpr elif.");
         };
@@ -186,46 +199,68 @@ struct rocrand_host_api_benchmark : public primbench::benchmark_interface
     }
 
 private:
-    rocrand_rng_type m_engine;
-    rocrand_ordering m_ordering;
-    size_t           m_dimensions;
-    size_t           m_offset;
-    bool             m_benchmark_host;
+    rocrand_rng_type      m_engine;
+    rocrand_ordering      m_ordering;
+    size_t                m_dimensions;
+    size_t                m_offset;
+    bool                  m_benchmark_host;
+    std::optional<double> m_poisson_lambda;
 };
+
+#define QUEUE_POISSON(engine, ordering, poisson_lambda)                                            \
+    executor.queue<rocrand_host_api_benchmark<unsigned int, DISTRIBUTION_POISSON>>(engine,         \
+                                                                                   ordering,       \
+                                                                                   dimensions,     \
+                                                                                   offset,         \
+                                                                                   benchmark_host, \
+                                                                                   poisson_lambda)
 
 #define QUEUE(T, engine, ordering, Distribution)                            \
     executor.queue<rocrand_host_api_benchmark<T, Distribution>>(engine,     \
                                                                 ordering,   \
                                                                 dimensions, \
                                                                 offset,     \
-                                                                benchmark_host);
+                                                                benchmark_host)
 
-#define QUEUE_DISTRIBUTIONS(engine, ordering)                      \
-    QUEUE(unsigned int, engine, ordering, DISTRIBUTION_DEFAULT);   \
-    QUEUE(unsigned char, engine, ordering, DISTRIBUTION_DEFAULT);  \
-    QUEUE(unsigned short, engine, ordering, DISTRIBUTION_DEFAULT); \
-                                                                   \
-    QUEUE(__half, engine, ordering, DISTRIBUTION_UNIFORM);         \
-    QUEUE(float, engine, ordering, DISTRIBUTION_UNIFORM);          \
-    QUEUE(double, engine, ordering, DISTRIBUTION_UNIFORM);         \
-                                                                   \
-    QUEUE(__half, engine, ordering, DISTRIBUTION_NORMAL);          \
-    QUEUE(float, engine, ordering, DISTRIBUTION_NORMAL);           \
-    QUEUE(double, engine, ordering, DISTRIBUTION_NORMAL);          \
-                                                                   \
-    QUEUE(__half, engine, ordering, DISTRIBUTION_LOG_NORMAL);      \
-    QUEUE(float, engine, ordering, DISTRIBUTION_LOG_NORMAL);       \
-    QUEUE(double, engine, ordering, DISTRIBUTION_LOG_NORMAL);
+#define QUEUE_DISTRIBUTIONS(engine, ordering)                          \
+    do                                                                 \
+    {                                                                  \
+        QUEUE(unsigned int, engine, ordering, DISTRIBUTION_DEFAULT);   \
+        QUEUE(unsigned char, engine, ordering, DISTRIBUTION_DEFAULT);  \
+        QUEUE(unsigned short, engine, ordering, DISTRIBUTION_DEFAULT); \
+                                                                       \
+        QUEUE(__half, engine, ordering, DISTRIBUTION_UNIFORM);         \
+        QUEUE(float, engine, ordering, DISTRIBUTION_UNIFORM);          \
+        QUEUE(double, engine, ordering, DISTRIBUTION_UNIFORM);         \
+                                                                       \
+        QUEUE(__half, engine, ordering, DISTRIBUTION_NORMAL);          \
+        QUEUE(float, engine, ordering, DISTRIBUTION_NORMAL);           \
+        QUEUE(double, engine, ordering, DISTRIBUTION_NORMAL);          \
+                                                                       \
+        QUEUE(__half, engine, ordering, DISTRIBUTION_LOG_NORMAL);      \
+        QUEUE(float, engine, ordering, DISTRIBUTION_LOG_NORMAL);       \
+        QUEUE(double, engine, ordering, DISTRIBUTION_LOG_NORMAL);      \
+                                                                       \
+        for(auto poisson_lambda : poisson_lambdas)                     \
+        {                                                              \
+            QUEUE_POISSON(engine, ordering, poisson_lambda);           \
+        }                                                              \
+    }                                                                  \
+    while(0)
 
 // Quoting programmers-guide.rst:
 // ``ROCRAND_ORDERING_PSEUDO_DYNAMIC`` is not supported for generators
 // created with ``rocrand_create_generator_host``.
-#define QUEUE_PSEUDO(engine)                                         \
-    QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DEFAULT)     \
-    if(!benchmark_host)                                              \
-    {                                                                \
-        QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DYNAMIC) \
-    }
+#define QUEUE_PSEUDO(engine)                                              \
+    do                                                                    \
+    {                                                                     \
+        QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DEFAULT);     \
+        if(!benchmark_host)                                               \
+        {                                                                 \
+            QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_PSEUDO_DYNAMIC); \
+        }                                                                 \
+    }                                                                     \
+    while(0)
 
 #define QUEUE_QUASI(engine) QUEUE_DISTRIBUTIONS(engine, ROCRAND_ORDERING_QUASI_DEFAULT)
 
@@ -238,24 +273,29 @@ int main(int argc, char* argv[])
 
     auto offset = executor.get<size_t>("offset", 0, "Offset of generated pseudo-random values");
 
+    auto poisson_lambdas = executor.get<std::vector<double>>(
+        "lambda",
+        {10.0},
+        "Space-separated list of lambdas of Poisson distribution");
+
     auto benchmark_host
         = executor.get<bool>("host", false, "Run benchmarks on the host instead of on the device");
 
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_LFSR113)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_MRG31K3P)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_MRG32K3A)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_MTGP32)
-    QUEUE_DISTRIBUTIONS(ROCRAND_RNG_PSEUDO_MT19937, ROCRAND_ORDERING_PSEUDO_DEFAULT)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_PHILOX4_32_10)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY2_32_20)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY2_64_20)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY4_32_20)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY4_64_20)
-    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_XORWOW)
-    QUEUE_QUASI(ROCRAND_RNG_QUASI_SOBOL32)
-    QUEUE_QUASI(ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL32)
-    QUEUE_QUASI(ROCRAND_RNG_QUASI_SOBOL64)
-    QUEUE_QUASI(ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL64)
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_LFSR113);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_MRG31K3P);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_MRG32K3A);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_MTGP32);
+    QUEUE_DISTRIBUTIONS(ROCRAND_RNG_PSEUDO_MT19937, ROCRAND_ORDERING_PSEUDO_DEFAULT);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_PHILOX4_32_10);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY2_32_20);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY2_64_20);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY4_32_20);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_THREEFRY4_64_20);
+    QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_XORWOW);
+    QUEUE_QUASI(ROCRAND_RNG_QUASI_SOBOL32);
+    QUEUE_QUASI(ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL32);
+    QUEUE_QUASI(ROCRAND_RNG_QUASI_SOBOL64);
+    QUEUE_QUASI(ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL64);
 
     executor.run();
 }
