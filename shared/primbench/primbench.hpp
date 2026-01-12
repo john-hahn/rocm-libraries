@@ -3068,11 +3068,15 @@ public:
 
             std::string key   = arg.substr(2);
             std::string value = "";
-            // Only consume next argument if it's a value (doesn't start with --)
-            if(i + 1 < argc && std::string(argv[i + 1]).rfind("--", 0) != 0)
+
+            // Consume all consecutive arguments that don't start with --
+            while(i + 1 < argc && std::string(argv[i + 1]).rfind("--", 0) != 0)
             {
-                value = argv[++i];
+                if(!value.empty())
+                    value += " ";
+                value += argv[++i];
             }
+
             _parsed[key] = value;
         }
     }
@@ -3092,9 +3096,22 @@ public:
             // For bools, explicitly output "true" or "false" instead of "0" or "1"
             if constexpr(std::is_same_v<T, bool>)
             {
-                oss << std::boolalpha;
+                oss << std::boolalpha << default_val;
             }
-            oss << default_val;
+            // For vectors, join elements with spaces
+            else if constexpr(is_vector<T>::value)
+            {
+                for(size_t i = 0; i < default_val.size(); ++i)
+                {
+                    if(i > 0)
+                        oss << " ";
+                    oss << default_val[i];
+                }
+            }
+            else
+            {
+                oss << default_val;
+            }
 
             _defaults[key] = oss.str();
             _registered.insert(key);
@@ -3140,6 +3157,24 @@ public:
                         std::exit(EXIT_FAILURE);
                     }
                 }
+                else if constexpr(is_vector<T>::value)
+                {
+                    using Elem = typename T::value_type;
+                    std::string token;
+                    while(ss >> token)
+                    {
+                        std::istringstream es(token);
+                        Elem               e{};
+                        es >> e;
+                        if(!es)
+                        {
+                            std::cerr << "Error: Failed to parse default vector for --" << key
+                                      << ": invalid value \"" << token << "\"\n";
+                            std::exit(EXIT_FAILURE);
+                        }
+                        out.push_back(e);
+                    }
+                }
                 else
                 {
                     ss >> out;
@@ -3158,6 +3193,34 @@ public:
         if constexpr(std::is_same_v<T, bool>)
         {
             return it->second.empty() ? true : false;
+        }
+        else if constexpr(is_vector<T>::value)
+        {
+            using Elem = typename T::value_type;
+            T                  out{};
+            std::istringstream ss(it->second);
+            std::string        token;
+            while(ss >> token)
+            {
+                std::istringstream es(token);
+                Elem               e{};
+                if constexpr(std::is_same_v<Elem, std::string>)
+                {
+                    e = token;
+                }
+                else
+                {
+                    es >> e;
+                    if(!es)
+                    {
+                        std::cerr << "Error: Failed to parse --" << key << ": invalid value \""
+                                  << token << "\"\n";
+                        std::exit(EXIT_FAILURE);
+                    }
+                }
+                out.push_back(e);
+            }
+            return out;
         }
         else
         {
@@ -3367,6 +3430,15 @@ private:
         _descriptions.emplace_back(key, desc);
         _description_keys_set.insert(key);
     }
+
+    // Helper to detect vectors
+    template<typename T>
+    struct is_vector : std::false_type
+    {};
+
+    template<typename T, typename A>
+    struct is_vector<std::vector<T, A>> : std::true_type
+    {};
 }; // class cli
 
 } // namespace detail
