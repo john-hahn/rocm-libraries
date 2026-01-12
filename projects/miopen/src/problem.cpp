@@ -1,28 +1,5 @@
-/*******************************************************************************
- *
- * MIT License
- *
- * Copyright (c) 2022 Advanced Micro Devices, Inc.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- *
- *******************************************************************************/
+// Copyright © Advanced Micro Devices, Inc., or its affiliates.
+// SPDX-License-Identifier: MIT
 
 #include <miopen/problem.hpp>
 
@@ -587,39 +564,37 @@ Problem::FindSolutionsImpl(const Handle& handle,
     static solver::softmax::AttnSoftmax attnSoftmaxSolver;
     static solver::softmax::Softmax regularSoftmaxSolver;
 
-    std::vector<solver::softmax::SoftmaxSolver*> solvers;
-
-    solvers.push_back(&attnSoftmaxSolver);
-    solvers.push_back(&regularSoftmaxSolver);
-
-    for(auto solver : solvers)
+    auto check_solver = [&]<typename Solver>(const Solver* solver)
     {
+        if(ret.size() >= max_solutions)
+        {
+            return;
+        }
+
         if(!solver->IsApplicable(ctx, problem_description))
         {
             MIOPEN_LOG_I2(solver->SolverDbId() << ": Not applicable");
-            continue;
+            return;
         }
 
         auto solution = Solution();
 
         /// \todo time measurement will be done later. For now we set less time for attention
         /// softmax and slightly bigger for regular
-        solution.SetTime(solver == &attnSoftmaxSolver ? 1.0f : 2.0f);
+        solution.SetTime(std::is_same_v<Solver, solver::softmax::AttnSoftmax> ? 1.0f : 2.0f);
         solution.SetWorkspaceSize(solver->GetWorkspaceSize(ctx, problem_description));
         solution.SetSolver(solver->SolverDbId());
         solution.SetProblem({*this});
 
-        MIOPEN_LOG_I("Found solution: " << solution.GetSolver().ToString() << " , "
+        MIOPEN_LOG_I("Found solution: " << solution.GetSolver().ToString() << ", "
                                         << solution.GetWorkspaceSize() << ", "
                                         << solution.GetTime());
 
         ret.emplace_back(std::move(solution));
+    };
 
-        if(ret.size() >= max_solutions)
-        {
-            break;
-        }
-    }
+    check_solver(&attnSoftmaxSolver);
+    check_solver(&regularSoftmaxSolver);
 
     return ret;
 }
