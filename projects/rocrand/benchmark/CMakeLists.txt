@@ -27,7 +27,7 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-function(add_rocrand_benchmark benchmark_src legacy)
+function(add_benchmark benchmark_src legacy)
   get_filename_component(BENCHMARK_TARGET ${benchmark_src} NAME_WE)
   add_executable(${BENCHMARK_TARGET} ${benchmark_src})
 
@@ -79,20 +79,14 @@ function(add_rocrand_benchmark benchmark_src legacy)
   endif()
 endfunction()
 
-add_rocrand_benchmark("benchmark_rocrand_host_api.cpp" OFF)
-add_rocrand_benchmark("benchmark_rocrand_device_api.cpp" OFF)
-if(HIP_COMPILER STREQUAL "nvcc")
-  add_rocrand_benchmark("benchmark_curand_host_api.cpp" OFF)
-  add_rocrand_benchmark("benchmark_curand_device_api.cpp" OFF)
-endif()
+# rocrand
+add_benchmark("rocrand/benchmark_rocrand_host_api.cpp" OFF)
+add_benchmark("rocrand/benchmark_rocrand_device_api.cpp" OFF)
 
-if(BUILD_LEGACY_BENCHMARK)
-  add_rocrand_benchmark("benchmark_rocrand_generate.cpp" ON)
-  add_rocrand_benchmark("benchmark_rocrand_kernel.cpp"   ON)
-  if(HIP_COMPILER STREQUAL "nvcc")
-    add_rocrand_benchmark("benchmark_curand_generate.cpp" ON)
-    add_rocrand_benchmark("benchmark_curand_kernel.cpp"   ON)
-  endif()
+# curand
+if(HIP_COMPILER STREQUAL "nvcc")
+  add_benchmark("curand/benchmark_curand_host_api.cpp" OFF)
+  add_benchmark("curand/benchmark_curand_device_api.cpp" OFF)
 endif()
 
 if(BUILD_BENCHMARK_TUNING)

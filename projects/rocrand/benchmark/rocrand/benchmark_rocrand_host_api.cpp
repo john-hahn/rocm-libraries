@@ -18,8 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#include "primbench.hpp"
-
 #include "benchmark_rocrand_utils.hpp"
 
 #include <hip/hip_runtime.h>
@@ -236,12 +234,12 @@ int main(int argc, char* argv[])
     primbench::executor executor(argc, argv, 128 * primbench::MiB, primbench::flags::sync);
 
     auto dimensions
-        = executor.get<size_t>("dimensions", 1, "number of dimensions of quasi-random values");
+        = executor.get<size_t>("dimensions", 1, "Number of dimensions of quasi-random values");
 
-    auto offset = executor.get<size_t>("offset", 0, "offset of generated pseudo-random values");
+    auto offset = executor.get<size_t>("offset", 0, "Offset of generated pseudo-random values");
 
     auto benchmark_host
-        = executor.get<bool>("host", false, "run benchmarks on the host instead of on the device");
+        = executor.get<bool>("host", false, "Run benchmarks on the host instead of on the device");
 
     QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_LFSR113)
     QUEUE_PSEUDO(ROCRAND_RNG_PSEUDO_MRG31K3P)

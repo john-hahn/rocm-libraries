@@ -19,7 +19,6 @@
 // THE SOFTWARE.
 
 #include "benchmark_rocrand_utils.hpp"
-#include "cmdparser.hpp"
 
 #include <benchmark/benchmark.h>
 
@@ -28,7 +27,6 @@
 #include <rocrand/rocrand_kernel.h>
 #include <rocrand/rocrand_mtgp32_11213.h>
 
-#include "custom_csv_formater.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -161,17 +159,17 @@ struct runner
            const unsigned long long offset)
     {
         const size_t states_size = blocks * threads;
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(EngineState)));
+        PRIMBENCH_HIP_CHECK(hipMalloc(&states, states_size * sizeof(EngineState)));
 
         init_kernel<<<dim3(blocks), dim3(threads)>>>(states, seed, offset);
 
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
+        PRIMBENCH_HIP_CHECK(hipGetLastError());
+        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
     }
 
     ~runner()
     {
-        HIP_CHECK(hipFree(states));
+        PRIMBENCH_HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -187,15 +185,15 @@ struct runner
 };
 
 template<typename T, typename Generator>
-__global__
-__launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
+__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
 void generate_kernel(rocrand_state_mtgp32* states, T* data, const size_t size, Generator generator)
 {
-    const unsigned int state_id = blockIdx.x;
-    unsigned int       index    = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int stride         = gridDim.x * blockDim.x;
+    const unsigned int   state_id = blockIdx.x;
+    unsigned int         index    = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int         stride   = gridDim.x * blockDim.x;
 
-    __shared__ rocrand_state_mtgp32 state;
+    __shared__
+    rocrand_state_mtgp32 state;
     rocrand_mtgp32_block_copy(&states[state_id], &state);
 
     const size_t r                 = size % blockDim.x;
@@ -229,7 +227,7 @@ struct runner<rocrand_state_mtgp32>
            const unsigned long long /* offset */)
     {
         const size_t states_size = std::min((size_t)200, blocks);
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_mtgp32)));
+        PRIMBENCH_HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_mtgp32)));
 
         ROCRAND_CHECK(
             rocrand_make_state_mtgp32(states, mtgp32dc_params_fast_11213, states_size, seed));
@@ -237,7 +235,7 @@ struct runner<rocrand_state_mtgp32>
 
     ~runner()
     {
-        HIP_CHECK(hipFree(states));
+        PRIMBENCH_HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -276,7 +274,7 @@ struct runner<rocrand_state_lfsr113>
            const unsigned long long /* offset */)
     {
         const size_t states_size = blocks * threads;
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_lfsr113)));
+        PRIMBENCH_HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_lfsr113)));
 
         hipLaunchKernelGGL(HIP_KERNEL_NAME(init_kernel),
                            dim3(blocks),
@@ -289,13 +287,13 @@ struct runner<rocrand_state_lfsr113>
                                  ROCRAND_LFSR113_DEFAULT_SEED_Z,
                                  ROCRAND_LFSR113_DEFAULT_SEED_W});
 
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
+        PRIMBENCH_HIP_CHECK(hipGetLastError());
+        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
     }
 
     ~runner()
     {
-        HIP_CHECK(hipFree(states));
+        PRIMBENCH_HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -319,8 +317,7 @@ struct runner<rocrand_state_lfsr113>
 };
 
 template<typename EngineState, typename SobolType>
-__global__
-__launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
+__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
 void init_sobol_kernel(EngineState* states, SobolType* directions, SobolType offset)
 {
     const unsigned int dimension = blockIdx.y;
@@ -331,8 +328,7 @@ void init_sobol_kernel(EngineState* states, SobolType* directions, SobolType off
 }
 
 template<typename EngineState, typename SobolType>
-__global__
-__launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
+__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
 void init_scrambled_sobol_kernel(EngineState* states,
                                  SobolType*   directions,
                                  SobolType*   scramble_constants,
@@ -350,8 +346,7 @@ void init_scrambled_sobol_kernel(EngineState* states,
 
 // generate_kernel for the normal and scrambled sobol generators
 template<typename EngineState, typename T, typename Generator>
-__global__
-__launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
+__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
 void generate_sobol_kernel(EngineState* states, T* data, const size_t size, Generator generator)
 {
     const unsigned int dimension = blockIdx.y;
@@ -403,22 +398,22 @@ struct runner<rocrand_state_sobol32>
 
         unsigned int* directions;
         const size_t  size = dimensions * 32 * sizeof(unsigned int);
-        HIP_CHECK(hipMalloc(&directions, size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
+        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, size));
+        PRIMBENCH_HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
 
         init_sobol_kernel<<<grid_config, block_config>>>(states,
                                                          directions,
                                                          static_cast<unsigned int>(offset));
 
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
+        PRIMBENCH_HIP_CHECK(hipGetLastError());
+        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
 
-        HIP_CHECK(hipFree(directions));
+        PRIMBENCH_HIP_CHECK(hipFree(directions));
     }
 
     ~runner()
     {
-        HIP_CHECK(hipFree(states));
+        PRIMBENCH_HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -471,13 +466,14 @@ struct runner<rocrand_state_scrambled_sobol32>
 
         unsigned int* directions;
         const size_t  directions_size = dimensions * 32 * sizeof(unsigned int);
-        HIP_CHECK(hipMalloc(&directions, directions_size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
+        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, directions_size));
+        PRIMBENCH_HIP_CHECK(
+            hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
 
         unsigned int* scramble_constants;
         const size_t  constants_size = dimensions * sizeof(unsigned int);
-        HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
-        HIP_CHECK(
+        PRIMBENCH_HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
+        PRIMBENCH_HIP_CHECK(
             hipMemcpy(scramble_constants, h_constants, constants_size, hipMemcpyHostToDevice));
 
         init_scrambled_sobol_kernel<<<grid_config, block_config>>>(
@@ -486,16 +482,16 @@ struct runner<rocrand_state_scrambled_sobol32>
             scramble_constants,
             static_cast<unsigned int>(offset));
 
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
+        PRIMBENCH_HIP_CHECK(hipGetLastError());
+        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
 
-        HIP_CHECK(hipFree(directions));
-        HIP_CHECK(hipFree(scramble_constants));
+        PRIMBENCH_HIP_CHECK(hipFree(directions));
+        PRIMBENCH_HIP_CHECK(hipFree(scramble_constants));
     }
 
     ~runner()
     {
-        HIP_CHECK(hipFree(states));
+        PRIMBENCH_HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -545,20 +541,20 @@ struct runner<rocrand_state_sobol64>
 
         unsigned long long int* directions;
         const size_t            size = dimensions * 64 * sizeof(unsigned long long int);
-        HIP_CHECK(hipMalloc(&directions, size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
+        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, size));
+        PRIMBENCH_HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
 
         init_sobol_kernel<<<grid_config, block_config>>>(states, directions, offset);
 
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
+        PRIMBENCH_HIP_CHECK(hipGetLastError());
+        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
 
-        HIP_CHECK(hipFree(directions));
+        PRIMBENCH_HIP_CHECK(hipFree(directions));
     }
 
     ~runner()
     {
-        HIP_CHECK(hipFree(states));
+        PRIMBENCH_HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -611,13 +607,14 @@ struct runner<rocrand_state_scrambled_sobol64>
 
         unsigned long long int* directions;
         const size_t            directions_size = dimensions * 64 * sizeof(unsigned long long int);
-        HIP_CHECK(hipMalloc(&directions, directions_size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
+        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, directions_size));
+        PRIMBENCH_HIP_CHECK(
+            hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
 
         unsigned long long int* scramble_constants;
         const size_t            constants_size = dimensions * sizeof(unsigned long long int);
-        HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
-        HIP_CHECK(
+        PRIMBENCH_HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
+        PRIMBENCH_HIP_CHECK(
             hipMemcpy(scramble_constants, h_constants, constants_size, hipMemcpyHostToDevice));
 
         init_scrambled_sobol_kernel<<<grid_config, block_config>>>(states,
@@ -625,16 +622,16 @@ struct runner<rocrand_state_scrambled_sobol64>
                                                                    scramble_constants,
                                                                    offset);
 
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
+        PRIMBENCH_HIP_CHECK(hipGetLastError());
+        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
 
-        HIP_CHECK(hipFree(directions));
-        HIP_CHECK(hipFree(scramble_constants));
+        PRIMBENCH_HIP_CHECK(hipFree(directions));
+        PRIMBENCH_HIP_CHECK(hipFree(scramble_constants));
     }
 
     ~runner()
     {
-        HIP_CHECK(hipFree(states));
+        PRIMBENCH_HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -671,8 +668,7 @@ struct generator_uint : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand(state);
     }
@@ -689,8 +685,7 @@ struct generator_ullong : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand(state);
     }
@@ -707,8 +702,7 @@ struct generator_uniform : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand_uniform(state);
     }
@@ -725,8 +719,7 @@ struct generator_uniform_double : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand_uniform_double(state);
     }
@@ -743,8 +736,7 @@ struct generator_normal : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand_normal(state);
     }
@@ -761,8 +753,7 @@ struct generator_normal_double : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand_normal_double(state);
     }
@@ -779,8 +770,7 @@ struct generator_log_normal : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand_log_normal(state, 0.f, 1.f);
     }
@@ -797,8 +787,7 @@ struct generator_log_normal_double : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state) const
+    data_type operator()(Engine* state) const
     {
         return rocrand_log_normal_double(state, 0., 1.);
     }
@@ -817,8 +806,7 @@ struct generator_poisson : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state)
+    data_type operator()(Engine* state)
     {
         return rocrand_poisson(state, lambda);
     }
@@ -849,8 +837,7 @@ struct generator_discrete_poisson : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state)
+    data_type operator()(Engine* state)
     {
         return rocrand_discrete(state, discrete_distribution);
     }
@@ -891,8 +878,7 @@ struct generator_discrete_custom : public generator_type
     }
 
     __device__
-    data_type
-        operator()(Engine* state)
+    data_type operator()(Engine* state)
     {
         return rocrand_discrete(state, discrete_distribution);
     }
@@ -928,7 +914,7 @@ void run_benchmark(benchmark::State&        state,
     generator.create();
 
     data_type* data;
-    HIP_CHECK(hipMalloc(&data, size * sizeof(data_type)));
+    PRIMBENCH_HIP_CHECK(hipMalloc(&data, size * sizeof(data_type)));
 
     constexpr unsigned long long int seed   = 12345ULL;
     constexpr unsigned long long int offset = 6789ULL;
@@ -939,26 +925,26 @@ void run_benchmark(benchmark::State&        state,
     for(size_t i = 0; i < 5; i++)
     {
         r.generate(blocks, threads, stream, data, size, generator);
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
+        PRIMBENCH_HIP_CHECK(hipGetLastError());
+        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
     }
 
     // Measurement
     hipEvent_t start, stop;
-    HIP_CHECK(hipEventCreate(&start));
-    HIP_CHECK(hipEventCreate(&stop));
+    PRIMBENCH_HIP_CHECK(hipEventCreate(&start));
+    PRIMBENCH_HIP_CHECK(hipEventCreate(&stop));
     for(auto _ : state)
     {
-        HIP_CHECK(hipEventRecord(start, stream));
+        PRIMBENCH_HIP_CHECK(hipEventRecord(start, stream));
         for(size_t i = 0; i < trials; i++)
         {
             r.generate(blocks, threads, stream, data, size, generator);
         }
-        HIP_CHECK(hipEventRecord(stop, stream));
-        HIP_CHECK(hipEventSynchronize(stop));
+        PRIMBENCH_HIP_CHECK(hipEventRecord(stop, stream));
+        PRIMBENCH_HIP_CHECK(hipEventSynchronize(stop));
 
         float elapsed;
-        HIP_CHECK(hipEventElapsedTime(&elapsed, start, stop));
+        PRIMBENCH_HIP_CHECK(hipEventElapsedTime(&elapsed, start, stop));
 
         state.SetIterationTime(elapsed / 1000.f);
     }
@@ -968,9 +954,9 @@ void run_benchmark(benchmark::State&        state,
     // Optional de-initialization of the generator
     generator.destroy();
 
-    HIP_CHECK(hipEventDestroy(start));
-    HIP_CHECK(hipEventDestroy(stop));
-    HIP_CHECK(hipFree(data));
+    PRIMBENCH_HIP_CHECK(hipEventDestroy(start));
+    PRIMBENCH_HIP_CHECK(hipEventDestroy(stop));
+    PRIMBENCH_HIP_CHECK(hipFree(data));
 }
 
 template<typename Engine, typename Generator>
@@ -1079,7 +1065,7 @@ int main(int argc, char* argv[])
     parser.run_and_exit_if_error();
 
     hipStream_t stream;
-    HIP_CHECK(hipStreamCreate(&stream));
+    PRIMBENCH_HIP_CHECK(hipStreamCreate(&stream));
 
     add_common_benchmark_rocrand_info();
 
@@ -1150,7 +1136,5 @@ int main(int argc, char* argv[])
         benchmark::RunSpecifiedBenchmarks(console_reporter, spec);
     else
         benchmark::RunSpecifiedBenchmarks(console_reporter, out_file_reporter, spec);
-    HIP_CHECK(hipStreamDestroy(stream));
-
-    return 0;
+    PRIMBENCH_HIP_CHECK(hipStreamDestroy(stream));
 }

@@ -18,16 +18,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#ifndef ROCRAND_BENCHMARK_CURAND_UTILS_HPP_
-#define ROCRAND_BENCHMARK_CURAND_UTILS_HPP_
+#pragma once
 
-#include "benchmark_utils.hpp"
-
-#include <benchmark/benchmark.h>
+#include "primbench.hpp"
 
 #include <curand.h>
 
 #include <iostream>
+#include <string>
 
 #define CURAND_CALL(condition)                                                                \
     do                                                                                        \
@@ -55,15 +53,6 @@
     }                                                                                      \
     while(0)
 
-inline void add_common_benchmark_curand_info()
-{
-    int version;
-    CURAND_CALL(curandGetVersion(&version));
-    benchmark::AddCustomContext("curand_version", std::to_string(version));
-
-    add_common_benchmark_info();
-}
-
 inline std::string engine_name(const curandRngType rng_type)
 {
     // The returned names have to be able to reproduce the curandRngType by prepending
@@ -87,5 +76,3 @@ inline std::string engine_name(const curandRngType rng_type)
     }
     // clang-format on
 }
-
-#endif // ROCRAND_BENCHMARK_CURAND_UTILS_HPP_

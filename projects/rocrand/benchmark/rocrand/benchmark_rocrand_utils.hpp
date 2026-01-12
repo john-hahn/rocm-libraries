@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "primbench.hpp"
+
 #include <rocrand/rocrand.h>
 
 #include <iostream>
@@ -76,12 +78,6 @@ inline size_t next_power2(size_t x)
     }
     return power;
 }
-
-struct benchmark_config
-{
-    std::size_t bytes{};
-    double      lambda{};
-};
 
 PRIMBENCH_REGISTER_TYPE(unsigned int, "uint")
 PRIMBENCH_REGISTER_TYPE(unsigned char, "uchar")

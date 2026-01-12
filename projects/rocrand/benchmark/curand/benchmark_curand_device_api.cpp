@@ -19,7 +19,6 @@
 // THE SOFTWARE.
 
 #include "benchmark_curand_utils.hpp"
-#include "cmdparser.hpp"
 
 #include <benchmark/benchmark.h>
 
@@ -45,8 +44,10 @@
 #endif
 
 template<typename EngineState>
-__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void init_kernel(
-    EngineState* states, const unsigned long long seed, const unsigned long long offset)
+__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE)
+void init_kernel(EngineState*             states,
+                 const unsigned long long seed,
+                 const unsigned long long offset)
 {
     const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
     EngineState        state;
@@ -55,8 +56,8 @@ __global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void init_kernel(
 }
 
 template<typename EngineState, typename T, typename Generator>
-__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void generate_kernel(
-    EngineState* states, T* data, const size_t size, Generator generator)
+__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE)
+void generate_kernel(EngineState* states, T* data, const size_t size, Generator generator)
 {
     const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int stride   = gridDim.x * blockDim.x;
@@ -109,21 +110,22 @@ struct runner
 };
 
 template<typename T, typename Generator>
-__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void generate_kernel(
-    curandStateMtgp32_t* states, T* data, const size_t size, Generator generator)
+__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE)
+void generate_kernel(curandStateMtgp32_t* states, T* data, const size_t size, Generator generator)
 {
-    const unsigned int state_id  = blockIdx.x;
-    const unsigned int thread_id = threadIdx.x;
-    unsigned int       index     = blockIdx.x * blockDim.x + thread_id;
-    unsigned int       stride    = gridDim.x * blockDim.x;
+    const unsigned int  state_id  = blockIdx.x;
+    const unsigned int  thread_id = threadIdx.x;
+    unsigned int        index     = blockIdx.x * blockDim.x + thread_id;
+    unsigned int        stride    = gridDim.x * blockDim.x;
 
-    __shared__ curandStateMtgp32_t state;
+    __shared__
+    curandStateMtgp32_t state;
 
     if(thread_id == 0)
         state = states[state_id];
     __syncthreads();
 
-    const size_t r               = size % blockDim.x;
+    const size_t r                 = size % blockDim.x;
     const size_t size_rounded_down = size - r;
     const size_t size_rounded_up   = r == 0 ? size : size_rounded_down + blockDim.x;
     while(index < size_rounded_down)
@@ -190,8 +192,8 @@ struct runner<curandStateMtgp32_t>
 };
 
 template<typename EngineState, typename SobolType>
-__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void init_sobol_kernel(
-    EngineState* states, SobolType* directions, SobolType offset)
+__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE)
+void init_sobol_kernel(EngineState* states, SobolType* directions, SobolType offset)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -201,8 +203,11 @@ __global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void init_sobol_kern
 }
 
 template<typename EngineState, typename SobolType>
-__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void init_scrambled_sobol_kernel(
-    EngineState* states, SobolType* directions, SobolType* scramble_constants, SobolType offset)
+__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE)
+void init_scrambled_sobol_kernel(EngineState* states,
+                                 SobolType*   directions,
+                                 SobolType*   scramble_constants,
+                                 SobolType    offset)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -216,8 +221,8 @@ __global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void init_scrambled_
 
 // generate_kernel for the sobol generators
 template<typename EngineState, typename T, typename Generator>
-__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE) void generate_sobol_kernel(
-    EngineState* states, T* data, const size_t size, Generator generator)
+__global__ __launch_bounds__(CURAND_DEFAULT_MAX_BLOCK_SIZE)
+void generate_sobol_kernel(EngineState* states, T* data, const size_t size, Generator generator)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -509,7 +514,8 @@ struct generator_uint : public generator_type
         return "uniform-uint";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand(state);
     }
@@ -525,7 +531,8 @@ struct generator_ullong : public generator_type
         return "uniform-ullong";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand(state);
     }
@@ -541,7 +548,8 @@ struct generator_uniform : public generator_type
         return "uniform-float";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_uniform(state);
     }
@@ -557,7 +565,8 @@ struct generator_uniform_double : public generator_type
         return "uniform-double";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_uniform_double(state);
     }
@@ -573,7 +582,8 @@ struct generator_normal : public generator_type
         return "normal-float";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_normal(state);
     }
@@ -589,7 +599,8 @@ struct generator_normal_double : public generator_type
         return "normal-double";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_normal_double(state);
     }
@@ -605,7 +616,8 @@ struct generator_log_normal : public generator_type
         return "log-normal-float";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_log_normal(state, 0.f, 1.f);
     }
@@ -621,7 +633,8 @@ struct generator_log_normal_double : public generator_type
         return "log-normal-double";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_log_normal_double(state, 0., 1.);
     }
@@ -639,7 +652,8 @@ struct generator_poisson : public generator_type
         return "poisson(lambda=" + stream.str() + ")";
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_poisson(state, lambda);
     }
@@ -669,7 +683,8 @@ struct generator_discrete_poisson : public generator_type
         CURAND_CALL(curandDestroyDistribution(discrete_distribution));
     }
 
-    __device__ data_type operator()(Engine* state)
+    __device__
+    data_type operator()(Engine* state)
     {
         return curand_discrete(state, discrete_distribution);
     }
@@ -843,8 +858,6 @@ int main(int argc, char* argv[])
     cudaStream_t stream;
     CUDA_CALL(cudaStreamCreate(&stream));
 
-    add_common_benchmark_curand_info();
-
     benchmark_context ctx{};
 
     ctx.size       = parser.get<size_t>("size");
@@ -902,6 +915,4 @@ int main(int argc, char* argv[])
         benchmark::RunSpecifiedBenchmarks(console_reporter, out_file_reporter, spec);
     }
     CUDA_CALL(cudaStreamDestroy(stream));
-
-    return 0;
 }

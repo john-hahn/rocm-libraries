@@ -20,7 +20,6 @@
 
 #include "benchmark_utils.hpp"
 #include "benchmarked_generators.hpp"
-#include "cmdparser.hpp"
 #include "rng/xorwow.hpp"
 
 int main(int argc, char** argv)
