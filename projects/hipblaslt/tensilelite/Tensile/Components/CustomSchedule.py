@@ -2809,7 +2809,6 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
     mfma_wave_group=[2, 2]
 )
 def _get_schedule_256x192x32_TF32(kernel, useLDSTr, TLDS):
-    # print('kernel', kernel)
     kernel["MfmaInitCVgprs"] = True
     numMfma = 144
     optSchedule = dict()
@@ -3407,7 +3406,6 @@ def _get_schedule_128x256x32_TF32(kernel, useLDSTr, TLDS):
             'PackA3' : [packA3],
 
         }
-        print(optSchedule)
         nglshift = nllshift = 12 # vmcnt shift for ngl and nll
     else:
         return False, None
