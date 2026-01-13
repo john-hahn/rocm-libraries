@@ -2341,7 +2341,6 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
     kernel["MfmaInitCVgprs"] = True
     optSchedule = dict()
     syncCode = []
-    snopCode = []
     mfmaReorder = []
     nglshift = nllshift = 0 # vmcnt shift for ngl and nll
     if isTN(kernel) and not useLDSTr and TLDS==1:
@@ -2658,81 +2657,148 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
         nglshift = nllshift = 14
         
     elif isNT(kernel) and not useLDSTr and TLDS==0:
-        # kernel["UsePLRPack"] = True
+        kernel["UsePLRPack"] = True
+        kernel["UseMFMAF32XEmulation"] = True
 
-        syncTable = [
-            -1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0 for iteration == 0"),
-            
-            35, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0"),
-            
-            71, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment=""),
-            71, SBarrier(comment=""),
-            
-            107, SWaitCnt(dscnt=-1, vlcnt=14, vscnt=-1, comment="wait for previous set of global reads"),
-            107, SBarrier(comment=""),
+        # Used the following constrains to create schedule
+        #  - LRA0 + PACKA0 needs to be done before 1/4 MFMAs / 36
+        #  - LBR0 + PACKB0 needs to be done before 2/4 MFMAs / 72
+        #  - LRB3 + PACKB3 needs to start after 2/4 MFMAs / 72
+        #  - LRA3 + PACKA3 needs to start after 3/4 MFMAs /108
+
+        # LRA0 + GRIncA
+        lra0 = create_range(min_val = 0, num = 12, step = 1, repeat = 2)
+        grIncA = create_range(min_val = max(lra0)+1, num = 3, step = 1, repeat = 3)
+
+        # Hide LRA0 latency behind GRIncA
+        waitLRA0 = max(grIncA)+5
+        startPACKA0 = waitLRA0
+
+        # Reordering of packA instructions.
+        # 4 CVT + 2 4x4x4_16B MFMAs + 4 CVTs
+        # we interleave the 3 blocks together to avoid :
+        # - having a 5 state wait after each 4x4x4_16B MFMA
+        # - having extra latency when switching between MFMA types
+        packAOffset = [ 
+                   0, 0, 1, 1, 
+                   6, 6,
+                   7, 7, 8, 8,
+
+                   2, 2, 3, 3, 
+                   6, 6,
+                   9, 9, 10, 11,
+
+                   4, 4, 5, 5, 
+                   6, 6,
+                   12, 12, 13, 13,
+          ]
+
+        packA0 = [x + startPACKA0 for x in packAOffset]
+        packA0Done = max(packA0)
+
+        # Sanity check
+        assert packA0Done < numMfma//4
+
+        # LRB0 + GRIncB
+        lrb0 = create_range(min_val = 0, num = 16, step = 1, repeat = 2)
+        grIncB = create_range(min_val = max(lrb0)+1, num = 3, max_val = max(lrb0)+4, step = 1, repeat = 3)
+        waitLRB0 = max(grIncB)+6
+        startPACKB0 = waitLRB0
+        packBOffset = [ 
+            0, 0, 1, 1, 
+            8, 8,
+            9, 9, 10, 11,
+
+            2, 2, 3, 3, 
+            8, 8,
+            12, 12, 13, 13,
+
+            4, 4, 5, 5, 
+            8, 8,
+            14, 14, 15, 15,
+
+            6, 6, 7, 7, 
+            8, 8,
+            16, 16, 17, 17,
+            ]
+
+        packB0 = [x + startPACKB0 for x in packBOffset]
+
+        # GRA                
+        grA = [create_range(min_val = max(packB0)+1, num = 6, step = 2,repeat = 2),
+               create_range(min_val = max(packB0)+2, num = 6, step = 2,repeat = 2)]
+
+        halfMFMA = numMfma//2
+        assert max(packB0) < halfMFMA
+
+        # LR3
+        startLRB3 = halfMFMA
+        lrb3 = create_range(min_val=startLRB3, num=4, step=1, repeat=2)
+        lrb3 += create_range(min_val=max(lrb3)+9, num=12, step=1, repeat=2)
+
+        # GRB (split in two blocks)
+        grB = create_range(min_val=max(lrb3)+1, num=8, step=2, repeat=2)
+        waitLRB3 = max(grB)+1 
+
+        # PackB3 (starts after 1st GRB block)
+        packB3 = [x + waitLRB3 for x in packBOffset]
+
+        # LRA3 + PACKA3
+        startLRA3 = (3*numMfma)//4 # Can't start before 3/4 MFMAs
+        lra3 = create_range(min_val=startLRA3, num=12, step=1, repeat=2)
+        waitLRA3 = max(lra3) + 8 
+        packA3 = [x + waitLRA3 for x in packAOffset]
+
+        syncTable = [                    
+                    waitLRA0, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRA0 to complete"),
+                    waitLRB0, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRB0 to complete"),
+
+                    max(packB0)+1, SBarrier(comment="Barrier before GRA&GRB"),
+
+                    startLRB3-1,SWaitCnt(dscnt=-1, vlcnt=5, vscnt=-1, comment="Wait for previous GRA&B"),
+                    startLRB3-1,SBarrier(comment=""),
+
+                    waitLRB3,SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRB3 to complete"),
+                    waitLRA3, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRA3 to complete"),                    
         ]
         
-        snopTable = [
-            -1, SNop(0),
-            0, SNop(0),
-            1, SNop(0),
-            2, SNop(0),
-            3, SNop(0),
-            4, SNop(0),
-            5, SNop(0),
-            35, SNop(0),
-            36, SNop(0),
-            37, SNop(0),
-            38, SNop(0),
-            39, SNop(0),
-            40, SNop(0),
-            41, SNop(0),
-            41, SNop(0),
-            71, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0"),
-            107, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0")
-        ]
-
         optSchedule = {
-            'SYNC': [syncTable[::2]],
-            
-            'GRIncA': [[0, 0, 0, 1, 1, 1, 2, 2, 2]],
-            'GRIncB': [[3, 3, 3, 4, 4, 4, 5, 5, 5]],
-            
-            'LRA0': [[0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11]],
-            'LRA3': [[108, 108, 109, 109, 110, 110, 111, 111, 116, 116, 117, 117, 118, 118, 119, 119, 120, 120, 121, 121, 122, 122, 123, 123]],
-            
-            'LRB0': [[12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 23, 24, 24, 25, 25, 26, 26, 27, 27]],
-            'LRB3': [[112, 112, 113, 113, 114, 114, 115, 115, 124, 124, 125, 125, 126, 126, 127, 127, 128, 128, 129, 129, 130, 130, 131, 131, 132, 132, 133, 133, 134, 134, 135, 135]],
-            
-            'LRSA': [[34]],
-            'LRSB': [[34]],
-            
-            'GRA': [[71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71]],
-            'GRB': [[71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71, 71]],
-            
-            'LWSA': [[106]],
-            'LWSB': [[106]],
-            
-            'LCC': [[143, 143]],
+            'SYNC'   : [syncTable[::2]],
 
-            'PackA3' : [[-1]*4 + [0]*20 + [1]*4 + [2]*20 + [3]*4 + [4]*20],
-            'PackB3' : [[-1]*4 + [0]*20 + [1]*4 + [2]*20 + [3]*4 + [4]*20 + [5]*24],
+            'GRIncA' : [grIncA],
+            'GRIncB' : [grIncB],
+            
+            'LRA0'   : [lra0],
+            'LRB0'   : [lrb0],
+            
+            'PackA0' : [packA0],
+            'PackB0' : [packB0],
 
-            'PackA0' : [[35]*4 + [36]*20 + [37]*4 + [38]*20 + [39]*4 + [40]*20],
-            'PackB0' : [[35]*4 + [36]*20 + [37]*4 + [38]*20 + [39]*4 + [40]*20 + [41]*24],
-
-            'SNOP': [snopTable[::2]]
+            'GRA'    : [*grA],
+            'GRB'    : [grB],  
+                        
+            'LRSA'   : [[max(grIncB)+1]],
+            'LRSB'   : [[max(grIncB)+2]],
+            
+            'LWSA'   : [[142]],
+            'LWSB'   : [[142]],
+            
+            'LCC'    : [[143, 143]],
+            
+            'LRA3'   : [lra3],
+            'LRB3'   : [lrb3],
+            
+            'PackB3' : [packB3],
+            'PackA3' : [packA3],
         }
         
-        snopCode = snopTable[1::2]
         syncCode = syncTable[1::2]
-        nglshift = nllshift = 14
-
+        nglshift = nllshift = len(optSchedule['GRA'][0])//2 + len(optSchedule['GRB'][0])//2
     else:
         return False, None
 
-    opt1 = ScheduleInfo(2, numMfma, optSchedule, syncCode, nglshift, nllshift, mfmaReorder=mfmaReorder, snopCode=snopCode)
-    opt1.disableValidation() 
+    opt1 = ScheduleInfo(2, numMfma, optSchedule, syncCode, nglshift, nllshift, mfmaReorder=mfmaReorder)
+    opt1.disableValidation()
     return True, opt1
 
 @RegisterSchedule(
