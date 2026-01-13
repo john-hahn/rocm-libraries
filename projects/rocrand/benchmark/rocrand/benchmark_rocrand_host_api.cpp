@@ -63,9 +63,6 @@ constexpr const char* ordering_name(rocrand_ordering order)
     }
 }
 
-template<typename T>
-using generate_func_type = std::function<rocrand_status(rocrand_generator, T*, size_t)>;
-
 template<typename T, distribution Distribution>
 struct rocrand_host_api_benchmark : public primbench::benchmark_interface
 {
