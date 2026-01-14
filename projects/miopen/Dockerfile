@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 as miopen
+FROM ubuntu:24.04 as miopen
 
 ARG PROJ="miopen"
 ARG DEBIAN_FRONTEND=noninteractive
