@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 as miopen
+FROM ubuntu:22.04 as miopen
 
 ARG PROJ="miopen"
 ARG DEBIAN_FRONTEND=noninteractive
@@ -178,4 +178,4 @@ RUN echo Building for GPU Archs: ${GPU_ARCHS} && \
     sccache -s; \
     fi && \
 # Remove CK source once built and installed
-    rm -rf /composable_kernel
+    # rm -rf /composable_kernel
