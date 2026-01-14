@@ -176,6 +176,6 @@ RUN echo Building for GPU Archs: ${GPU_ARCHS} && \
     make -j ${num_threads} install && \   
     if [ "$MIOPEN_SCCACHE" != "" ]; then \
     sccache -s; \
-    fi && \
+    fi 
 # Remove CK source once built and installed
     # rm -rf /composable_kernel
