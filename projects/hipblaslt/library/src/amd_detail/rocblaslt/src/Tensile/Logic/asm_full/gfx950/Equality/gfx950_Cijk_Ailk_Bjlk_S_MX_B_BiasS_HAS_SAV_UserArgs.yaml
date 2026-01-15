@@ -34110,8 +34110,8 @@
     TransposeLDSMetadata: true
     ULSGRODoubleG2L: 0
     UnrollLoopSwapGlobalReadOrder: 0
-    UnrollMajorLDSA: 0
-    UnrollMajorLDSB: 0
+    UnrollMajorLDSA: true
+    UnrollMajorLDSB: true
     UnrollMajorLDSMetadata: true
     Use64bShadowLimit: 1
     UseCustomMainLoopSchedule: true
