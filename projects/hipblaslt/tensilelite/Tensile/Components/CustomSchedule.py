@@ -2655,7 +2655,6 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
         }
 
         nglshift = nllshift = 14
-        
     elif isNT(kernel) and not useLDSTr and TLDS==0:
         kernel["UsePLRPack"] = True
         kernel["UseMFMAF32XEmulation"] = True
@@ -2755,10 +2754,10 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
 
                     max(packB0)+1, SBarrier(comment="Barrier before GRA&GRB"),
 
-                    startLRB3-1,SWaitCnt(dscnt=-1, vlcnt=5, vscnt=-1, comment="Wait for previous GRA&B"),
-                    startLRB3-1,SBarrier(comment=""),
+                    startLRB3-1, SWaitCnt(dscnt=-1, vlcnt=5, vscnt=-1, comment="Wait for previous GRA&B"),
+                    startLRB3-1, SBarrier(comment=""),
 
-                    waitLRB3,SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRB3 to complete"),
+                    waitLRB3, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRB3 to complete"),
                     waitLRA3, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRA3 to complete"),                    
         ]
         
