@@ -2729,11 +2729,11 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
         lrb3 = create_range(min_val=startLRB3, num=4, step=1, repeat=2)
         lrb3 += create_range(min_val=max(lrb3)+9, num=12, step=1, repeat=2)
 
-        # GRB (split in two blocks)
+        # GRB
         grB = create_range(min_val=max(lrb3)+1, num=8, step=2, repeat=2)
         waitLRB3 = max(grB)+1 
 
-        # PackB3 (starts after 1st GRB block)
+        # PackB3
         packB3 = [x + waitLRB3 for x in packBOffset]
 
         # LRA3 + PACKA3
