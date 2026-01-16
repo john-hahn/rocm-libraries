@@ -66,12 +66,12 @@ constexpr const char* ordering_name(rocrand_ordering order)
 template<typename T, distribution Distribution>
 struct rocrand_host_api_benchmark : public primbench::benchmark_interface
 {
-    constexpr rocrand_host_api_benchmark(rocrand_rng_type      engine,
-                                         rocrand_ordering      ordering,
-                                         size_t                dimensions,
-                                         size_t                offset,
-                                         bool                  benchmark_host,
-                                         std::optional<double> poisson_lambda = std::nullopt)
+    rocrand_host_api_benchmark(rocrand_rng_type      engine,
+                               rocrand_ordering      ordering,
+                               size_t                dimensions,
+                               size_t                offset,
+                               bool                  benchmark_host,
+                               std::optional<double> poisson_lambda = std::nullopt)
         : m_engine(engine)
         , m_ordering(ordering)
         , m_dimensions(dimensions)
@@ -117,7 +117,7 @@ struct rocrand_host_api_benchmark : public primbench::benchmark_interface
         }
         else
         {
-            PRIMBENCH_HIP_CHECK(hipMalloc(&data, items * sizeof(T)));
+            HIP_CHECK(hipMalloc(&data, items * sizeof(T)));
             ROCRAND_CHECK(rocrand_create_generator(&generator, m_engine));
         }
 
@@ -191,7 +191,7 @@ struct rocrand_host_api_benchmark : public primbench::benchmark_interface
         }
         else
         {
-            PRIMBENCH_HIP_CHECK(hipFree(data));
+            HIP_CHECK(hipFree(data));
         }
     }
 

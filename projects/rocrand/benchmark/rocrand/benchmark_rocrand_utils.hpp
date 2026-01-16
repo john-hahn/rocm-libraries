@@ -40,6 +40,18 @@
     }                                                                                          \
     while(0)
 
+#define HIP_CHECK(condition)                                                            \
+    do                                                                                  \
+    {                                                                                   \
+        hipError_t error_ = condition;                                                  \
+        if(error_ != hipSuccess)                                                        \
+        {                                                                               \
+            std::cout << "HIP error: " << error_ << " line: " << __LINE__ << std::endl; \
+            exit(error_);                                                               \
+        }                                                                               \
+    }                                                                                   \
+    while(0)
+
 inline std::string engine_name(const rocrand_rng_type rng_type)
 {
     // The returned names have to be able to reproduce the rocrand_rng_type by prepending

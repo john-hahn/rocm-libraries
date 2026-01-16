@@ -18,10 +18,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#ifndef ROCRAND_BENCHMARK_OCCUPANCY_HELPER_HPP__
-#define ROCRAND_BENCHMARK_OCCUPANCY_HELPER_HPP__
+#pragma once
 
-#include "benchmark_utils.hpp"
+#include "benchmark_rocrand_utils.hpp"
+
 #include <cstdio>
 #include <hip/hip_runtime.h>
 #include <vector>
@@ -40,11 +40,8 @@ struct launch_params
 /// achieve the maximum active blocks. The launch bounds can be overwritten by
 /// setting `threads`, `blocks` and `provision`.
 template<typename T>
-inline launch_params get_benchmark_launch_parameters(T           kernel,
-                                                     const char* kernel_name    = "unnamed_kernel",
-                                                     int         user_threads   = 0,
-                                                     int         user_blocks    = 0,
-                                                     int         user_provision = 1)
+inline launch_params get_benchmark_launch_parameters(
+    T kernel, const char* kernel_name, int user_threads, int user_blocks, int user_provision)
 {
     launch_params params{};
 
@@ -89,12 +86,13 @@ inline launch_params get_benchmark_launch_parameters(T           kernel,
     }
     else
     {
-        params.threads = 256; // Default fallback
-
         // Heuristic that picks thread count that maximizes occupancy
         const std::vector<int> thread_options = {32, 64, 128, 256, 512, 1024};
         for(int t : thread_options)
         {
+            if(t > params.max_threads_per_block)
+                continue;
+
             int current_occupancy = 0;
             HIP_CHECK(
                 hipOccupancyMaxActiveBlocksPerMultiprocessor(&current_occupancy, kernel, t, 0));
@@ -114,6 +112,7 @@ inline launch_params get_benchmark_launch_parameters(T           kernel,
                             params.max_threads_per_block);
                     exit(EXIT_FAILURE);
                 }
+
                 params.threads   = t;
                 params.occupancy = current_occupancy;
             }
@@ -131,7 +130,12 @@ inline launch_params get_benchmark_launch_parameters(T           kernel,
         params.blocks = params.occupancy * params.multiprocessors * user_provision;
     }
 
+    // Sanity check for zero occupancy and zero threads
+    if(params.threads == 0 || params.occupancy == 0)
+    {
+        fprintf(stderr, "[Error] Kernel %s: No valid thread configuration found.\n", kernel_name);
+        exit(EXIT_FAILURE);
+    }
+
     return params;
 }
-
-#endif

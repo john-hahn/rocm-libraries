@@ -20,8 +20,6 @@
 
 #include "benchmark_rocrand_utils.hpp"
 
-#include <benchmark/benchmark.h>
-
 #include <hip/hip_runtime.h>
 #include <rocrand/rocrand.h>
 #include <rocrand/rocrand_kernel.h>
@@ -33,12 +31,11 @@
 #include <iostream>
 #include <numeric>
 #include <string>
-#include <type_traits>
 #include <vector>
 
-#include "benchmark_occupancy_helper.hpp"
+#include "benchmark_rocrand_occupancy_helper.hpp"
 
-// Dublicate from rocrand.h. Default maximum thread count for most generators.
+// Duplicate from rocrand.h. Default maximum thread count for most generators.
 // Higher values (like 1024) typically cause register pressure and slowdowns
 // in state-heavy generators like Sobol.
 #ifndef ROCRAND_DEFAULT_MAX_BLOCK_SIZE
@@ -51,31 +48,6 @@
 #ifndef ROCRAND_THREEFRY_MAX_BLOCK_SIZE
     #define ROCRAND_THREEFRY_MAX_BLOCK_SIZE 1024
 #endif
-
-#ifndef DEFAULT_RAND_N
-    #define DEFAULT_RAND_N (1024 * 1024 * 128)
-#endif
-
-#define REGISTER_BENCHMARK(ENGINE_STATE, RNG_TYPE, KERNEL_NAME)                                 \
-    {                                                                                           \
-        auto k_ptr = generate_kernel<ENGINE_STATE, unsigned int, generator_uint<ENGINE_STATE>>; \
-                                                                                                \
-        launch_params p = get_benchmark_launch_parameters(k_ptr,                                \
-                                                          KERNEL_NAME,                          \
-                                                          input_threads,                        \
-                                                          input_blocks,                         \
-                                                          input_provision);                     \
-                                                                                                \
-        std::string context_key = "config/" + std::string(KERNEL_NAME);                         \
-        std::string launch_info = "Blocks: " + std::to_string(p.blocks)                         \
-                                  + ", Threads: " + std::to_string(p.threads)                   \
-                                  + ", Occupancy: " + std::to_string(p.occupancy);              \
-                                                                                                \
-        benchmark::AddCustomContext(context_key, launch_info);                                  \
-        ctx.blocks  = p.blocks;                                                                 \
-        ctx.threads = p.threads;                                                                \
-        add_benchmarks<ENGINE_STATE>(ctx, stream, benchmarks, RNG_TYPE);                        \
-    }
 
 template<typename EngineState,
          typename std::enable_if<
@@ -159,17 +131,17 @@ struct runner
            const unsigned long long offset)
     {
         const size_t states_size = blocks * threads;
-        PRIMBENCH_HIP_CHECK(hipMalloc(&states, states_size * sizeof(EngineState)));
+        HIP_CHECK(hipMalloc(&states, states_size * sizeof(EngineState)));
 
         init_kernel<<<dim3(blocks), dim3(threads)>>>(states, seed, offset);
 
-        PRIMBENCH_HIP_CHECK(hipGetLastError());
-        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipDeviceSynchronize());
     }
 
     ~runner()
     {
-        PRIMBENCH_HIP_CHECK(hipFree(states));
+        HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -227,7 +199,7 @@ struct runner<rocrand_state_mtgp32>
            const unsigned long long /* offset */)
     {
         const size_t states_size = std::min((size_t)200, blocks);
-        PRIMBENCH_HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_mtgp32)));
+        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_mtgp32)));
 
         ROCRAND_CHECK(
             rocrand_make_state_mtgp32(states, mtgp32dc_params_fast_11213, states_size, seed));
@@ -235,7 +207,7 @@ struct runner<rocrand_state_mtgp32>
 
     ~runner()
     {
-        PRIMBENCH_HIP_CHECK(hipFree(states));
+        HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -274,7 +246,7 @@ struct runner<rocrand_state_lfsr113>
            const unsigned long long /* offset */)
     {
         const size_t states_size = blocks * threads;
-        PRIMBENCH_HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_lfsr113)));
+        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_lfsr113)));
 
         hipLaunchKernelGGL(HIP_KERNEL_NAME(init_kernel),
                            dim3(blocks),
@@ -287,13 +259,13 @@ struct runner<rocrand_state_lfsr113>
                                  ROCRAND_LFSR113_DEFAULT_SEED_Z,
                                  ROCRAND_LFSR113_DEFAULT_SEED_W});
 
-        PRIMBENCH_HIP_CHECK(hipGetLastError());
-        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipDeviceSynchronize());
     }
 
     ~runner()
     {
-        PRIMBENCH_HIP_CHECK(hipFree(states));
+        HIP_CHECK(hipFree(states));
     }
 
     template<typename T, typename Generator>
@@ -398,24 +370,29 @@ struct runner<rocrand_state_sobol32>
 
         unsigned int* directions;
         const size_t  size = dimensions * 32 * sizeof(unsigned int);
-        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, size));
-        PRIMBENCH_HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
+        HIP_CHECK(hipMalloc(&directions, size));
+        HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
 
         init_sobol_kernel<<<grid_config, block_config>>>(states,
                                                          directions,
                                                          static_cast<unsigned int>(offset));
 
-        PRIMBENCH_HIP_CHECK(hipGetLastError());
-        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipDeviceSynchronize());
 
-        PRIMBENCH_HIP_CHECK(hipFree(directions));
+        HIP_CHECK(hipFree(directions));
     }
 
     ~runner()
     {
-        PRIMBENCH_HIP_CHECK(hipFree(states));
+        HIP_CHECK(hipFree(states));
     }
 
+    /**
+    * @note blocks and threads arguments are ignored. This runner uses the 
+    * grid_config and block_config determined during construction to ensure
+    * valid indexing into the dimension-arranged state array.
+    */
     template<typename T, typename Generator>
     void generate(const size_t /*blocks*/,
                   const size_t /*threads*/,
@@ -466,14 +443,13 @@ struct runner<rocrand_state_scrambled_sobol32>
 
         unsigned int* directions;
         const size_t  directions_size = dimensions * 32 * sizeof(unsigned int);
-        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, directions_size));
-        PRIMBENCH_HIP_CHECK(
-            hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
+        HIP_CHECK(hipMalloc(&directions, directions_size));
+        HIP_CHECK(hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
 
         unsigned int* scramble_constants;
         const size_t  constants_size = dimensions * sizeof(unsigned int);
-        PRIMBENCH_HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
-        PRIMBENCH_HIP_CHECK(
+        HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
+        HIP_CHECK(
             hipMemcpy(scramble_constants, h_constants, constants_size, hipMemcpyHostToDevice));
 
         init_scrambled_sobol_kernel<<<grid_config, block_config>>>(
@@ -482,18 +458,23 @@ struct runner<rocrand_state_scrambled_sobol32>
             scramble_constants,
             static_cast<unsigned int>(offset));
 
-        PRIMBENCH_HIP_CHECK(hipGetLastError());
-        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipDeviceSynchronize());
 
-        PRIMBENCH_HIP_CHECK(hipFree(directions));
-        PRIMBENCH_HIP_CHECK(hipFree(scramble_constants));
+        HIP_CHECK(hipFree(directions));
+        HIP_CHECK(hipFree(scramble_constants));
     }
 
     ~runner()
     {
-        PRIMBENCH_HIP_CHECK(hipFree(states));
+        HIP_CHECK(hipFree(states));
     }
 
+    /**
+    * @note blocks and threads arguments are ignored. This runner uses the 
+    * grid_config and block_config determined during construction to ensure
+    * valid indexing into the dimension-arranged state array.
+    */
     template<typename T, typename Generator>
     void generate(const size_t /*blocks*/,
                   const size_t /*threads*/,
@@ -541,22 +522,27 @@ struct runner<rocrand_state_sobol64>
 
         unsigned long long int* directions;
         const size_t            size = dimensions * 64 * sizeof(unsigned long long int);
-        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, size));
-        PRIMBENCH_HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
+        HIP_CHECK(hipMalloc(&directions, size));
+        HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
 
         init_sobol_kernel<<<grid_config, block_config>>>(states, directions, offset);
 
-        PRIMBENCH_HIP_CHECK(hipGetLastError());
-        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipDeviceSynchronize());
 
-        PRIMBENCH_HIP_CHECK(hipFree(directions));
+        HIP_CHECK(hipFree(directions));
     }
 
     ~runner()
     {
-        PRIMBENCH_HIP_CHECK(hipFree(states));
+        HIP_CHECK(hipFree(states));
     }
 
+    /**
+    * @note blocks and threads arguments are ignored. This runner uses the 
+    * grid_config and block_config determined during construction to ensure
+    * valid indexing into the dimension-arranged state array.
+    */
     template<typename T, typename Generator>
     void generate(const size_t /*blocks*/,
                   const size_t /*threads*/,
@@ -607,14 +593,13 @@ struct runner<rocrand_state_scrambled_sobol64>
 
         unsigned long long int* directions;
         const size_t            directions_size = dimensions * 64 * sizeof(unsigned long long int);
-        PRIMBENCH_HIP_CHECK(hipMalloc(&directions, directions_size));
-        PRIMBENCH_HIP_CHECK(
-            hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
+        HIP_CHECK(hipMalloc(&directions, directions_size));
+        HIP_CHECK(hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
 
         unsigned long long int* scramble_constants;
         const size_t            constants_size = dimensions * sizeof(unsigned long long int);
-        PRIMBENCH_HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
-        PRIMBENCH_HIP_CHECK(
+        HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
+        HIP_CHECK(
             hipMemcpy(scramble_constants, h_constants, constants_size, hipMemcpyHostToDevice));
 
         init_scrambled_sobol_kernel<<<grid_config, block_config>>>(states,
@@ -622,18 +607,23 @@ struct runner<rocrand_state_scrambled_sobol64>
                                                                    scramble_constants,
                                                                    offset);
 
-        PRIMBENCH_HIP_CHECK(hipGetLastError());
-        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipDeviceSynchronize());
 
-        PRIMBENCH_HIP_CHECK(hipFree(directions));
-        PRIMBENCH_HIP_CHECK(hipFree(scramble_constants));
+        HIP_CHECK(hipFree(directions));
+        HIP_CHECK(hipFree(scramble_constants));
     }
 
     ~runner()
     {
-        PRIMBENCH_HIP_CHECK(hipFree(states));
+        HIP_CHECK(hipFree(states));
     }
 
+    /**
+     * @note blocks and threads arguments are ignored. This runner uses the 
+     * grid_config and block_config determined during construction to ensure
+     * valid indexing into the dimension-arranged state array.
+     */
     template<typename T, typename Generator>
     void generate(const size_t /*blocks*/,
                   const size_t /*threads*/,
@@ -886,255 +876,172 @@ struct generator_discrete_custom : public generator_type
     rocrand_discrete_distribution discrete_distribution;
 };
 
-struct benchmark_context
+template<typename Engine, typename Generator>
+struct rocrand_device_api_benchmark : public primbench::benchmark_interface
 {
-    size_t              size;
-    size_t              dimensions;
-    size_t              trials;
-    size_t              blocks;
-    size_t              threads;
-    std::vector<double> lambdas;
+    primbench::json meta() const override
+    {
+        // TODO: Ensure that all template params, constructor params,
+        //       and everything else is put in the returned `meta` primbench object.
+        //       Cross-reference against benchmark_rocrand_host_api.cpp its meta().
+        return primbench::json{}.add("engine", engine_name(m_engine));
+    }
+
+    void run(primbench::state& state) override
+    {
+        // TODO: Should this be turned into a (not explicitly initialized) member variable?
+        Generator generator;
+
+        typedef typename Generator::data_type data_type;
+
+        const size_t size       = context.size;
+        const size_t dimensions = context.dimensions;
+        const size_t trials     = context.trials;
+        const size_t blocks     = context.blocks;
+        const size_t threads    = context.threads;
+
+        generator.create();
+
+        data_type* data;
+        HIP_CHECK(hipMalloc(&data, size * sizeof(data_type)));
+
+        runner<Engine> r(dimensions, blocks, threads, seed, offset);
+
+        state.set_items(items);
+        state.add_writes<data_type>(items);
+
+        state.run([&] { r.generate(blocks, threads, stream, data, size, generator) });
+
+        generator.destroy();
+
+        HIP_CHECK(hipFree(data));
+    }
 };
 
-template<typename Engine, typename Generator>
-void run_benchmark(benchmark::State&        state,
-                   const hipStream_t        stream,
-                   const benchmark_context& context,
-                   Generator                generator)
-{
-    typedef typename Generator::data_type data_type;
+#define QUEUE(Engine, GeneratorType, generator)                                         \
+    do                                                                                  \
+    {                                                                                   \
+        static_assert(std::is_trivially_copyable<GeneratorType>::value                  \
+                          && std::is_trivially_destructible<GeneratorType>::value,      \
+                      "Generator gets copied to device at kernel launch.");             \
+                                                                                        \
+        executor.queue<rocrand_device_api_benchmark<Engine, GeneratorType>>(generator); \
+    }                                                                                   \
+    while(0)
 
-    const size_t size       = context.size;
-    const size_t dimensions = context.dimensions;
-    const size_t trials     = context.trials;
-    const size_t blocks     = context.blocks;
-    const size_t threads    = context.threads;
-
-    // Optional initialization of the generator
-    generator.create();
-
-    data_type* data;
-    PRIMBENCH_HIP_CHECK(hipMalloc(&data, size * sizeof(data_type)));
-
-    constexpr unsigned long long int seed   = 12345ULL;
-    constexpr unsigned long long int offset = 6789ULL;
-
-    runner<Engine> r(dimensions, blocks, threads, seed, offset);
-
-    // Warm-up
-    for(size_t i = 0; i < 5; i++)
-    {
-        r.generate(blocks, threads, stream, data, size, generator);
-        PRIMBENCH_HIP_CHECK(hipGetLastError());
-        PRIMBENCH_HIP_CHECK(hipDeviceSynchronize());
-    }
-
-    // Measurement
-    hipEvent_t start, stop;
-    PRIMBENCH_HIP_CHECK(hipEventCreate(&start));
-    PRIMBENCH_HIP_CHECK(hipEventCreate(&stop));
-    for(auto _ : state)
-    {
-        PRIMBENCH_HIP_CHECK(hipEventRecord(start, stream));
-        for(size_t i = 0; i < trials; i++)
-        {
-            r.generate(blocks, threads, stream, data, size, generator);
-        }
-        PRIMBENCH_HIP_CHECK(hipEventRecord(stop, stream));
-        PRIMBENCH_HIP_CHECK(hipEventSynchronize(stop));
-
-        float elapsed;
-        PRIMBENCH_HIP_CHECK(hipEventElapsedTime(&elapsed, start, stop));
-
-        state.SetIterationTime(elapsed / 1000.f);
-    }
-    state.SetBytesProcessed(trials * state.iterations() * size * sizeof(data_type));
-    state.SetItemsProcessed(trials * state.iterations() * size);
-
-    // Optional de-initialization of the generator
-    generator.destroy();
-
-    PRIMBENCH_HIP_CHECK(hipEventDestroy(start));
-    PRIMBENCH_HIP_CHECK(hipEventDestroy(stop));
-    PRIMBENCH_HIP_CHECK(hipFree(data));
-}
-
-template<typename Engine, typename Generator>
-void add_benchmark(const benchmark_context&                      context,
-                   const hipStream_t                             stream,
-                   std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                   const std::string&                            name,
-                   Generator                                     generator)
-{
-    static_assert(std::is_trivially_copyable<Generator>::value
-                      && std::is_trivially_destructible<Generator>::value,
-                  "Generator gets copied to device at kernel launch.");
-    const std::string benchmark_name = "device_kernel<" + name + "," + generator.name() + ">";
-    benchmarks.emplace_back(benchmark::RegisterBenchmark(benchmark_name.c_str(),
-                                                         &run_benchmark<Engine, Generator>,
-                                                         stream,
-                                                         context,
-                                                         generator));
-}
-
+// TODO: Rewrite to a macro
 template<typename Engine>
-void add_benchmarks(const benchmark_context&                      ctx,
-                    const hipStream_t                             stream,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const rocrand_rng_type                        engine_type)
+void add_benchmarks(size_t                     blocks,
+                    size_t                     threads,
+                    const std::vector<double>& poisson_lambdas,
+                    const rocrand_rng_type     engine)
 {
     constexpr bool is_64_bits = std::is_same<Engine, rocrand_state_scrambled_sobol64>::value
                                 || std::is_same<Engine, rocrand_state_sobol64>::value
                                 || std::is_same<Engine, rocrand_state_threefry2x64_20>::value
                                 || std::is_same<Engine, rocrand_state_threefry4x64_20>::value;
 
-    const std::string name = engine_name(engine_type);
-
-    if(is_64_bits)
+    if constexpr(is_64_bits)
     {
-        add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_ullong<Engine>());
+        QUEUE(Engine, generator_ullong);
     }
     else
     {
-        add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_uint<Engine>());
+        QUEUE(Engine, generator_uint);
     }
 
-    add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_uniform<Engine>());
-    add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_uniform_double<Engine>());
-    add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_normal<Engine>());
-    add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_normal_double<Engine>());
-    add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_log_normal<Engine>());
-    add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_log_normal_double<Engine>());
+    QUEUE(Engine, generator_uniform);
+    QUEUE(Engine, generator_uniform_double);
+    QUEUE(Engine, generator_normal);
+    QUEUE(Engine, generator_normal_double);
+    QUEUE(Engine, generator_log_normal);
+    QUEUE(Engine, generator_log_normal_double);
 
-    for(size_t i = 0; i < ctx.lambdas.size(); i++)
+    for(auto lambda : poisson_lambdas)
     {
-        generator_poisson<Engine> gen_poisson;
-        gen_poisson.lambda = ctx.lambdas[i];
-        add_benchmark<Engine>(ctx, stream, benchmarks, name, gen_poisson);
+        generator_poisson gen_poisson;
+        gen_poisson.lambda = lambda;
+        QUEUE(Engine, gen_poisson);
+
+        generator_discrete_poisson gen_discrete_poisson;
+        gen_discrete_poisson.lambda = lambda;
+        QUEUE(Engine, gen_discrete_poisson);
     }
 
-    for(size_t i = 0; i < ctx.lambdas.size(); i++)
-    {
-        generator_discrete_poisson<Engine> gen_discrete_poisson;
-        gen_discrete_poisson.lambda = ctx.lambdas[i];
-        add_benchmark<Engine>(ctx, stream, benchmarks, name, gen_discrete_poisson);
-    }
-
-    add_benchmark<Engine>(ctx, stream, benchmarks, name, generator_discrete_custom<Engine>());
+    QUEUE(Engine, generator_discrete_custom);
 }
+
+#define QUEUE_ENGINE(ENGINE_STATE, RNG_TYPE, KERNEL_NAME)                                        \
+    do                                                                                           \
+    {                                                                                            \
+        auto kernel = generate_kernel<ENGINE_STATE, unsigned int, generator_uint<ENGINE_STATE>>; \
+                                                                                                 \
+        launch_params p = get_benchmark_launch_parameters(kernel,                                \
+                                                          KERNEL_NAME,                           \
+                                                          input_threads,                         \
+                                                          input_blocks,                          \
+                                                          input_provision);                      \
+                                                                                                 \
+        add_benchmarks<ENGINE_STATE>(p.blocks, p.threads, poisson_lambdas, RNG_TYPE);            \
+    }                                                                                            \
+    while(0)
 
 int main(int argc, char* argv[])
 {
-    // get paramaters before they are passed into
-    // benchmark::Initialize()
-    std::string outFormat     = "";
-    std::string filter        = "";
-    std::string consoleFormat = "";
+    primbench::executor executor(argc, argv, 128 * primbench::MiB);
 
-    getFormats(argc, argv, outFormat, filter, consoleFormat);
+    auto dimensions
+        = executor.get<size_t>("dimensions", 1, "Number of dimensions of quasi-random values");
 
-    benchmark::Initialize(&argc, argv);
+    auto offset = executor.get<size_t>("offset", 0, "Offset of generated pseudo-random values");
 
-    cli::Parser parser(argc, argv);
-    parser.set_optional<size_t>("size", "size", DEFAULT_RAND_N, "number of values");
-    parser.set_optional<size_t>("dimensions",
-                                "dimensions",
-                                1,
-                                "number of dimensions of quasi-random values");
-    parser.set_optional<size_t>("trials", "trials", 20, "number of trials");
-    parser.set_optional<size_t>(
-        "blocks",
-        "blocks",
-        0,
-        "number of blocks. If 0, computed automatically based on occupancy and provision");
-    parser.set_optional<size_t>(
-        "threads",
-        "threads",
-        0,
-        "number of threads in each block. If 0, computed automatically to maximize occupancy");
-    parser.set_optional<size_t>(
-        "provision",
-        "provision",
-        1,
-        "number of waves per Compute Unit (multiplier for automatic block computation).");
-    parser.set_optional<std::vector<double>>(
-        "lambda",
+    auto poisson_lambdas = executor.get<std::vector<double>>(
         "lambda",
         {10.0},
-        "space-separated list of lambdas of Poisson distribution");
-    parser.run_and_exit_if_error();
+        "Space-separated list of lambdas of Poisson distribution");
 
-    hipStream_t stream;
-    PRIMBENCH_HIP_CHECK(hipStreamCreate(&stream));
+    int input_threads = executor.get<size_t>(
+        "threads",
+        0,
+        "Number of threads in each block. If 0, computed automatically to maximize occupancy");
 
-    add_common_benchmark_rocrand_info();
+    int input_blocks = executor.get<size_t>(
+        "blocks",
+        0,
+        "Number of blocks. If 0, computed automatically based on occupancy and provision");
 
-    benchmark_context ctx{};
-
-    ctx.size       = parser.get<size_t>("size");
-    ctx.dimensions = parser.get<size_t>("dimensions");
-    ctx.trials     = parser.get<size_t>("trials");
-    ctx.lambdas    = parser.get<std::vector<double>>("lambda");
-
-    int input_threads   = parser.get<size_t>("threads");
-    int input_blocks    = parser.get<size_t>("blocks");
-    int input_provision = parser.get<size_t>("provision");
-
-    benchmark::AddCustomContext("size", std::to_string(ctx.size));
-    benchmark::AddCustomContext("dimensions", std::to_string(ctx.dimensions));
-    benchmark::AddCustomContext("trials", std::to_string(ctx.trials));
-    benchmark::AddCustomContext("threads", std::to_string(input_threads));
-    benchmark::AddCustomContext("blocks", std::to_string(input_blocks));
-    benchmark::AddCustomContext("provision", std::to_string(input_provision));
-
-    std::vector<benchmark::internal::Benchmark*> benchmarks = {};
+    int input_provision = executor.get<size_t>(
+        "provision",
+        1,
+        "Number of waves per Compute Unit (multiplier for automatic block computation)");
 
     // MT19937 has no kernel implementation
-    REGISTER_BENCHMARK(rocrand_state_lfsr113, ROCRAND_RNG_PSEUDO_LFSR113, "lfsr113");
-    REGISTER_BENCHMARK(rocrand_state_mrg31k3p, ROCRAND_RNG_PSEUDO_MRG31K3P, "mrg31k3p");
-    REGISTER_BENCHMARK(rocrand_state_mrg32k3a, ROCRAND_RNG_PSEUDO_MRG32K3A, "mrg32k3a");
-    REGISTER_BENCHMARK(rocrand_state_mtgp32, ROCRAND_RNG_PSEUDO_MTGP32, "mtgp32");
-    REGISTER_BENCHMARK(rocrand_state_philox4x32_10,
-                       ROCRAND_RNG_PSEUDO_PHILOX4_32_10,
-                       "philox4x32_10")
-    REGISTER_BENCHMARK(rocrand_state_scrambled_sobol32,
-                       ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL32,
-                       "scrambled_sobol32")
-    REGISTER_BENCHMARK(rocrand_state_scrambled_sobol64,
-                       ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL64,
-                       "scrambled_sobol64")
-    REGISTER_BENCHMARK(rocrand_state_sobol32, ROCRAND_RNG_QUASI_SOBOL32, "sobol32")
-    REGISTER_BENCHMARK(rocrand_state_sobol64, ROCRAND_RNG_QUASI_SOBOL64, "sobol64")
-    REGISTER_BENCHMARK(rocrand_state_threefry2x32_20,
-                       ROCRAND_RNG_PSEUDO_THREEFRY2_32_20,
-                       "threefry2x32_20")
-    REGISTER_BENCHMARK(rocrand_state_threefry4x32_20,
-                       ROCRAND_RNG_PSEUDO_THREEFRY4_32_20,
-                       "threefry4x32_20")
-    REGISTER_BENCHMARK(rocrand_state_threefry2x64_20,
-                       ROCRAND_RNG_PSEUDO_THREEFRY2_64_20,
-                       "threefry2x64_20")
-    REGISTER_BENCHMARK(rocrand_state_threefry4x64_20,
-                       ROCRAND_RNG_PSEUDO_THREEFRY4_64_20,
-                       "threefry4x64_20")
-    REGISTER_BENCHMARK(rocrand_state_xorwow, ROCRAND_RNG_PSEUDO_XORWOW, "xorwow");
+    QUEUE_ENGINE(rocrand_state_lfsr113, ROCRAND_RNG_PSEUDO_LFSR113, "lfsr113");
+    QUEUE_ENGINE(rocrand_state_mrg31k3p, ROCRAND_RNG_PSEUDO_MRG31K3P, "mrg31k3p");
+    QUEUE_ENGINE(rocrand_state_mrg32k3a, ROCRAND_RNG_PSEUDO_MRG32K3A, "mrg32k3a");
+    QUEUE_ENGINE(rocrand_state_mtgp32, ROCRAND_RNG_PSEUDO_MTGP32, "mtgp32");
+    QUEUE_ENGINE(rocrand_state_philox4x32_10, ROCRAND_RNG_PSEUDO_PHILOX4_32_10, "philox4x32_10");
+    QUEUE_ENGINE(rocrand_state_scrambled_sobol32,
+                 ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL32,
+                 "scrambled_sobol32");
+    QUEUE_ENGINE(rocrand_state_scrambled_sobol64,
+                 ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL64,
+                 "scrambled_sobol64");
+    QUEUE_ENGINE(rocrand_state_sobol32, ROCRAND_RNG_QUASI_SOBOL32, "sobol32");
+    QUEUE_ENGINE(rocrand_state_sobol64, ROCRAND_RNG_QUASI_SOBOL64, "sobol64");
+    QUEUE_ENGINE(rocrand_state_threefry2x32_20,
+                 ROCRAND_RNG_PSEUDO_THREEFRY2_32_20,
+                 "threefry2x32_20");
+    QUEUE_ENGINE(rocrand_state_threefry4x32_20,
+                 ROCRAND_RNG_PSEUDO_THREEFRY4_32_20,
+                 "threefry4x32_20");
+    QUEUE_ENGINE(rocrand_state_threefry2x64_20,
+                 ROCRAND_RNG_PSEUDO_THREEFRY2_64_20,
+                 "threefry2x64_20");
+    QUEUE_ENGINE(rocrand_state_threefry4x64_20,
+                 ROCRAND_RNG_PSEUDO_THREEFRY4_64_20,
+                 "threefry4x64_20");
+    QUEUE_ENGINE(rocrand_state_xorwow, ROCRAND_RNG_PSEUDO_XORWOW, "xorwow");
 
-    // Use manual timing
-    for(auto& b : benchmarks)
-    {
-        b->UseManualTime();
-        b->Unit(benchmark::kMillisecond);
-    }
-
-    benchmark::BenchmarkReporter* console_reporter  = getConsoleReporter(consoleFormat);
-    benchmark::BenchmarkReporter* out_file_reporter = getOutFileReporter(outFormat);
-
-    std::string spec = (filter == "" || filter == "all") ? "." : filter;
-
-    // Run benchmarks
-    if(outFormat == "") // default case
-        benchmark::RunSpecifiedBenchmarks(console_reporter, spec);
-    else
-        benchmark::RunSpecifiedBenchmarks(console_reporter, out_file_reporter, spec);
-    PRIMBENCH_HIP_CHECK(hipStreamDestroy(stream));
+    executor.run();
 }
