@@ -2683,7 +2683,7 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
                    4, 4, 5, 5, 
                    6, 6,
                    12, 12, 13, 13,
-          ]
+        ]
 
         packA0 = [x + startPACKA0 for x in packAOffset]
         packA0Done = max(packA0)
@@ -2712,7 +2712,7 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
             6, 6, 7, 7, 
             8, 8,
             16, 16, 17, 17,
-            ]
+        ]
 
         packB0 = [x + startPACKB0 for x in packBOffset]
 
