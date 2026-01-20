@@ -815,6 +815,237 @@ namespace rocRoller
                 return std::make_shared<Expression>(Expr({lhs, rhs, expr.comment}));
             }
 
+            ExpressionPtr operator()(Divide const& expr) const
+            {
+                auto resultVarType = resultVariableType(expr);
+
+                auto lhs = call(expr.lhs);
+                auto rhs = call(expr.rhs);
+
+                bool eval_lhs = evaluationTimes(lhs)[EvaluationTime::Translate];
+                bool eval_rhs = evaluationTimes(rhs)[EvaluationTime::Translate];
+
+                // Simplification: a / a = 1 (when expressions are identical)
+                if(identical(lhs, rhs))
+                {
+                    auto rv = literal(1, resultVarType);
+                    copyComment(rv, expr);
+                    return rv;
+                }
+
+                // Simplification: (a * b) / b = a or (a * b) / a = b
+                if(lhs && std::holds_alternative<Multiply>(*lhs))
+                {
+                    auto const& mul = std::get<Multiply>(*lhs);
+                    if(identical(mul.rhs, rhs))
+                    {
+                        auto rv = mul.lhs;
+                        copyComment(rv, expr);
+                        return rv;
+                    }
+                    if(identical(mul.lhs, rhs))
+                    {
+                        auto rv = mul.rhs;
+                        copyComment(rv, expr);
+                        return rv;
+                    }
+                }
+
+                // Simplification: (a << n) / (1 << n) = a (for matching shift amounts)
+                if(lhs && std::holds_alternative<ShiftL>(*lhs) && eval_rhs)
+                {
+                    auto const& shift            = std::get<ShiftL>(*lhs);
+                    auto        shiftAmountTimes = evaluationTimes(shift.rhs);
+                    if(shiftAmountTimes[EvaluationTime::Translate])
+                    {
+                        auto shiftAmount = evaluate(shift.rhs);
+                        auto divisor     = evaluate(rhs);
+
+                        auto getShiftAmount = [](auto val) -> std::optional<unsigned int> {
+                            using T = std::decay_t<decltype(val)>;
+                            if constexpr(std::is_integral_v<T> && !std::is_same_v<T, bool>)
+                                return static_cast<unsigned int>(val);
+                            return std::nullopt;
+                        };
+
+                        auto shiftVal = std::visit(getShiftAmount, shiftAmount);
+                        if(shiftVal.has_value())
+                        {
+                            auto checkPow2Match = [&shiftVal](auto val) -> bool {
+                                using T = std::decay_t<decltype(val)>;
+                                if constexpr(std::is_integral_v<T> && !std::is_same_v<T, bool>)
+                                {
+                                    using UT      = std::make_unsigned_t<T>;
+                                    auto expected = static_cast<UT>(1) << (*shiftVal);
+                                    return static_cast<UT>(val) == expected;
+                                }
+                                return false;
+                            };
+
+                            if(std::visit(checkPow2Match, divisor))
+                            {
+                                auto rv = shift.lhs;
+                                copyComment(rv, expr);
+                                return rv;
+                            }
+                        }
+                    }
+                }
+
+                // Apply constant-based simplifications
+                auto simplifier = SimplifyByConstant<Divide>{resultVarType};
+
+                ExpressionPtr rv = nullptr;
+
+                if(eval_lhs && eval_rhs)
+                {
+                    rv = literal(evaluate(Divide({lhs, rhs})));
+                }
+                else if(eval_rhs)
+                {
+                    rv = simplifier.call(lhs, evaluate(rhs));
+                }
+                else if(eval_lhs)
+                {
+                    auto simplifierLHS = SimplifyByConstantLHS<Divide>{resultVarType};
+                    rv                 = simplifierLHS.call(evaluate(lhs), rhs);
+                }
+
+                if(rv != nullptr)
+                {
+                    if(resultVariableType(rv) != resultVarType)
+                    {
+                        AssertFatal(!resultVarType.isPointer(),
+                                    ShowValue(expr),
+                                    ShowValue(rv),
+                                    ShowValue(resultVarType));
+                        rv = convert(resultVarType.dataType, rv);
+                    }
+                    copyComment(rv, expr);
+                    return rv;
+                }
+
+                return std::make_shared<Expression>(Divide({lhs, rhs, expr.comment}));
+            }
+
+            ExpressionPtr operator()(Modulo const& expr) const
+            {
+                auto resultVarType = resultVariableType(expr);
+
+                auto lhs = call(expr.lhs);
+                auto rhs = call(expr.rhs);
+
+                bool eval_lhs = evaluationTimes(lhs)[EvaluationTime::Translate];
+                bool eval_rhs = evaluationTimes(rhs)[EvaluationTime::Translate];
+
+                // Simplification: a % a = 0 (when expressions are identical)
+                if(identical(lhs, rhs))
+                {
+                    auto rv = literal(0, resultVarType);
+                    copyComment(rv, expr);
+                    return rv;
+                }
+
+                // Simplification: (a * b) % b = 0 or (a * b) % a = 0
+                if(lhs && std::holds_alternative<Multiply>(*lhs))
+                {
+                    auto const& mul = std::get<Multiply>(*lhs);
+                    if(identical(mul.rhs, rhs) || identical(mul.lhs, rhs))
+                    {
+                        auto rv = literal(0, resultVarType);
+                        copyComment(rv, expr);
+                        return rv;
+                    }
+                }
+
+                // Simplification: (a << n) % (1 << n) = 0 (for matching shift amounts)
+                if(lhs && std::holds_alternative<ShiftL>(*lhs) && eval_rhs)
+                {
+                    auto const& shift            = std::get<ShiftL>(*lhs);
+                    auto        shiftAmountTimes = evaluationTimes(shift.rhs);
+                    if(shiftAmountTimes[EvaluationTime::Translate])
+                    {
+                        auto shiftAmount = evaluate(shift.rhs);
+                        auto divisor     = evaluate(rhs);
+
+                        auto getShiftAmount = [](auto val) -> std::optional<unsigned int> {
+                            using T = std::decay_t<decltype(val)>;
+                            if constexpr(std::is_integral_v<T> && !std::is_same_v<T, bool>)
+                                return static_cast<unsigned int>(val);
+                            return std::nullopt;
+                        };
+
+                        auto shiftVal = std::visit(getShiftAmount, shiftAmount);
+                        if(shiftVal.has_value())
+                        {
+                            auto checkPow2Match = [&shiftVal](auto val) -> bool {
+                                using T = std::decay_t<decltype(val)>;
+                                if constexpr(std::is_integral_v<T> && !std::is_same_v<T, bool>)
+                                {
+                                    using UT      = std::make_unsigned_t<T>;
+                                    auto expected = static_cast<UT>(1) << (*shiftVal);
+                                    return static_cast<UT>(val) == expected;
+                                }
+                                return false;
+                            };
+
+                            if(std::visit(checkPow2Match, divisor))
+                            {
+                                auto rv = literal(0, resultVarType);
+                                copyComment(rv, expr);
+                                return rv;
+                            }
+                        }
+                    }
+                }
+
+                // Simplification: (a % b) % b = a % b (double modulo by same value)
+                if(lhs && std::holds_alternative<Modulo>(*lhs))
+                {
+                    auto const& innerMod = std::get<Modulo>(*lhs);
+                    if(identical(innerMod.rhs, rhs))
+                    {
+                        copyComment(lhs, expr);
+                        return lhs;
+                    }
+                }
+
+                // Apply constant-based simplifications
+                auto simplifier = SimplifyByConstant<Modulo>{resultVarType};
+
+                ExpressionPtr rv = nullptr;
+
+                if(eval_lhs && eval_rhs)
+                {
+                    rv = literal(evaluate(Modulo({lhs, rhs})));
+                }
+                else if(eval_rhs)
+                {
+                    rv = simplifier.call(lhs, evaluate(rhs));
+                }
+                else if(eval_lhs)
+                {
+                    auto simplifierLHS = SimplifyByConstantLHS<Modulo>{resultVarType};
+                    rv                 = simplifierLHS.call(evaluate(lhs), rhs);
+                }
+
+                if(rv != nullptr)
+                {
+                    if(resultVariableType(rv) != resultVarType)
+                    {
+                        AssertFatal(!resultVarType.isPointer(),
+                                    ShowValue(expr),
+                                    ShowValue(rv),
+                                    ShowValue(resultVarType));
+                        rv = convert(resultVarType.dataType, rv);
+                    }
+                    copyComment(rv, expr);
+                    return rv;
+                }
+
+                return std::make_shared<Expression>(Modulo({lhs, rhs, expr.comment}));
+            }
+
             ExpressionPtr operator()(BitfieldCombine const& expr) const
             {
                 auto cpy        = expr;
