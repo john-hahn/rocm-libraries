@@ -892,6 +892,162 @@ namespace rocRoller
                     }
                 }
 
+                // Simplification: (a * b) / c = a * (b / c) when b is divisible by c
+                if(lhs && std::holds_alternative<Multiply>(*lhs) && eval_rhs)
+                {
+                    auto const& mul          = std::get<Multiply>(*lhs);
+                    bool        eval_mul_rhs = evaluationTimes(mul.rhs)[EvaluationTime::Translate];
+                    bool        eval_mul_lhs = evaluationTimes(mul.lhs)[EvaluationTime::Translate];
+
+                    auto divisorVal = evaluate(rhs);
+                    auto checkDivisible
+                        = [](CommandArgumentValue mulVal, CommandArgumentValue divVal) -> bool {
+                        auto check = [&divVal](auto m) -> bool {
+                            using T = std::decay_t<decltype(m)>;
+                            if constexpr(std::is_integral_v<T> && !std::is_same_v<T, bool>)
+                            {
+                                return std::visit(
+                                    [&m](auto d) -> bool {
+                                        using D = std::decay_t<decltype(d)>;
+                                        if constexpr(std::is_integral_v<
+                                                         D> && !std::is_same_v<D, bool>)
+                                        {
+                                            return d != 0 && m % static_cast<T>(d) == 0;
+                                        }
+                                        return false;
+                                    },
+                                    divVal);
+                            }
+                            return false;
+                        };
+                        return std::visit(check, mulVal);
+                    };
+
+                    if(eval_mul_rhs)
+                    {
+                        auto mulRhsVal = evaluate(mul.rhs);
+                        if(checkDivisible(mulRhsVal, divisorVal))
+                        {
+                            auto newFactor = literal(evaluate(Divide({mul.rhs, rhs})));
+                            auto rv        = mul.lhs * newFactor;
+                            copyComment(rv, expr);
+                            return rv;
+                        }
+                    }
+                    if(eval_mul_lhs)
+                    {
+                        auto mulLhsVal = evaluate(mul.lhs);
+                        if(checkDivisible(mulLhsVal, divisorVal))
+                        {
+                            auto newFactor = literal(evaluate(Divide({mul.lhs, rhs})));
+                            auto rv        = newFactor * mul.rhs;
+                            copyComment(rv, expr);
+                            return rv;
+                        }
+                    }
+                }
+
+                // Simplification: (a / b) / c = a / (b * c) for constants
+                if(lhs && std::holds_alternative<Divide>(*lhs) && eval_rhs)
+                {
+                    auto const& innerDiv = std::get<Divide>(*lhs);
+                    bool eval_inner_rhs  = evaluationTimes(innerDiv.rhs)[EvaluationTime::Translate];
+                    if(eval_inner_rhs)
+                    {
+                        auto innerDivisor = evaluate(innerDiv.rhs);
+                        auto outerDivisor = evaluate(rhs);
+
+                        auto multiplyValues = [](CommandArgumentValue a,
+                                                 CommandArgumentValue b) -> CommandArgumentValue {
+                            return std::visit(
+                                [&b](auto aVal) -> CommandArgumentValue {
+                                    using A = std::decay_t<decltype(aVal)>;
+                                    if constexpr(std::is_integral_v<A> && !std::is_same_v<A, bool>)
+                                    {
+                                        return std::visit(
+                                            [&aVal](auto bVal) -> CommandArgumentValue {
+                                                using B = std::decay_t<decltype(bVal)>;
+                                                if constexpr(std::is_integral_v<
+                                                                 B> && !std::is_same_v<B, bool>)
+                                                {
+                                                    return static_cast<A>(aVal * bVal);
+                                                }
+                                                return aVal;
+                                            },
+                                            b);
+                                    }
+                                    return aVal;
+                                },
+                                a);
+                        };
+
+                        auto combinedDivisor = multiplyValues(innerDivisor, outerDivisor);
+                        auto rv              = innerDiv.lhs / literal(combinedDivisor);
+                        copyComment(rv, expr);
+                        return rv;
+                    }
+                }
+
+                // Simplification: (a % b) / b = 0 (remainder is always less than divisor)
+                if(lhs && std::holds_alternative<Modulo>(*lhs))
+                {
+                    auto const& mod = std::get<Modulo>(*lhs);
+                    if(identical(mod.rhs, rhs))
+                    {
+                        auto rv = literal(0, resultVarType);
+                        copyComment(rv, expr);
+                        return rv;
+                    }
+                }
+
+                // Simplification: (a % b) / c = 0 when c > b (for constants)
+                // Since a % b is in range [0, b-1] for unsigned, dividing by c >= b gives 0
+                if(lhs && std::holds_alternative<Modulo>(*lhs) && eval_rhs)
+                {
+                    auto const& mod          = std::get<Modulo>(*lhs);
+                    bool        eval_mod_rhs = evaluationTimes(mod.rhs)[EvaluationTime::Translate];
+                    if(eval_mod_rhs)
+                    {
+                        auto modDivisor   = evaluate(mod.rhs);
+                        auto outerDivisor = evaluate(rhs);
+
+                        auto checkGreaterOrEqual
+                            = [](CommandArgumentValue outer, CommandArgumentValue inner) -> bool {
+                            return std::visit(
+                                [&inner](auto o) -> bool {
+                                    using O = std::decay_t<decltype(o)>;
+                                    if constexpr(std::is_integral_v<O> && !std::is_same_v<O, bool>)
+                                    {
+                                        return std::visit(
+                                            [&o](auto i) -> bool {
+                                                using I = std::decay_t<decltype(i)>;
+                                                if constexpr(std::is_integral_v<
+                                                                 I> && !std::is_same_v<I, bool>)
+                                                {
+                                                    // For unsigned: a % b is in [0, b-1]
+                                                    // So (a % b) / c = 0 when c >= b
+                                                    return o >= static_cast<O>(i) && i > 0;
+                                                }
+                                                return false;
+                                            },
+                                            inner);
+                                    }
+                                    return false;
+                                },
+                                outer);
+                        };
+
+                        // Only safe for unsigned types
+                        if(!DataTypeInfo::Get(resultVarType.dataType).isSigned
+                           && checkGreaterOrEqual(outerDivisor, modDivisor))
+                        {
+                            auto rv = literal(0, resultVarType);
+                            copyComment(rv, expr);
+                            return rv;
+                        }
+                    }
+                }
+
                 // Apply constant-based simplifications
                 auto simplifier = SimplifyByConstant<Divide>{resultVarType};
 
@@ -1007,6 +1163,108 @@ namespace rocRoller
                     {
                         copyComment(lhs, expr);
                         return lhs;
+                    }
+                }
+
+                // Simplification: (a + b * c) % c = a % c (unsigned only)
+                // The b * c term is divisible by c, so it doesn't affect the modulo
+                if(lhs && std::holds_alternative<Add>(*lhs) && eval_rhs
+                   && !DataTypeInfo::Get(resultVarType.dataType).isSigned)
+                {
+                    auto const& add = std::get<Add>(*lhs);
+
+                    auto checkMultipleOf = [&rhs, &eval_rhs](ExpressionPtr term) -> bool {
+                        if(!term || !std::holds_alternative<Multiply>(*term))
+                            return false;
+                        auto const& mul = std::get<Multiply>(*term);
+                        return identical(mul.lhs, rhs) || identical(mul.rhs, rhs);
+                    };
+
+                    if(checkMultipleOf(add.rhs))
+                    {
+                        auto rv = add.lhs % rhs;
+                        copyComment(rv, expr);
+                        return call(rv);
+                    }
+                    if(checkMultipleOf(add.lhs))
+                    {
+                        auto rv = add.rhs % rhs;
+                        copyComment(rv, expr);
+                        return call(rv);
+                    }
+                }
+
+                // Simplification: (a - b * c) % c = a % c (unsigned only)
+                if(lhs && std::holds_alternative<Subtract>(*lhs) && eval_rhs
+                   && !DataTypeInfo::Get(resultVarType.dataType).isSigned)
+                {
+                    auto const& sub = std::get<Subtract>(*lhs);
+
+                    auto checkMultipleOf = [&rhs](ExpressionPtr term) -> bool {
+                        if(!term || !std::holds_alternative<Multiply>(*term))
+                            return false;
+                        auto const& mul = std::get<Multiply>(*term);
+                        return identical(mul.lhs, rhs) || identical(mul.rhs, rhs);
+                    };
+
+                    if(checkMultipleOf(sub.rhs))
+                    {
+                        auto rv = sub.lhs % rhs;
+                        copyComment(rv, expr);
+                        return call(rv);
+                    }
+                }
+
+                // Simplification: (a * b) % c = 0 when b is a multiple of c
+                if(lhs && std::holds_alternative<Multiply>(*lhs) && eval_rhs)
+                {
+                    auto const& mul          = std::get<Multiply>(*lhs);
+                    bool        eval_mul_rhs = evaluationTimes(mul.rhs)[EvaluationTime::Translate];
+                    bool        eval_mul_lhs = evaluationTimes(mul.lhs)[EvaluationTime::Translate];
+
+                    auto divisorVal = evaluate(rhs);
+                    auto checkDivisible
+                        = [](CommandArgumentValue mulVal, CommandArgumentValue divVal) -> bool {
+                        auto check = [&divVal](auto m) -> bool {
+                            using T = std::decay_t<decltype(m)>;
+                            if constexpr(std::is_integral_v<T> && !std::is_same_v<T, bool>)
+                            {
+                                return std::visit(
+                                    [&m](auto d) -> bool {
+                                        using D = std::decay_t<decltype(d)>;
+                                        if constexpr(std::is_integral_v<
+                                                         D> && !std::is_same_v<D, bool>)
+                                        {
+                                            return d != 0 && m % static_cast<T>(d) == 0;
+                                        }
+                                        return false;
+                                    },
+                                    divVal);
+                            }
+                            return false;
+                        };
+                        return std::visit(check, mulVal);
+                    };
+
+                    if(eval_mul_rhs)
+                    {
+                        auto mulRhsVal = evaluate(mul.rhs);
+                        if(checkDivisible(mulRhsVal, divisorVal))
+                        {
+                            auto rv = literal(0, resultVarType);
+                            copyComment(rv, expr);
+                            return rv;
+                        }
+                    }
+                    if(eval_mul_lhs)
+                    {
+                        auto mulLhsVal = evaluate(mul.lhs);
+                        if(checkDivisible(mulLhsVal, divisorVal))
+                        {
+                            auto rv = literal(0, resultVarType);
+                            copyComment(rv, expr);
+                            return rv;
+                        }
                     }
                 }
 
