@@ -205,111 +205,81 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                 rocrand_make_state_mtgp32(d_states, mtgp32dc_params_fast_11213, states_size, seed));
         }
         else if constexpr(std::is_same_v<State, rocrand_state_sobol32>
-                          || std::is_same_v<State, rocrand_state_sobol64>)
-        {
-            size_t       dir_bytes = std::is_same_v<State, rocrand_state_sobol32> ? 32 : 64;
-            const size_t size_dirs = m_dimensions * dir_bytes;
-
-            if constexpr(std::is_same_v<State, rocrand_state_sobol32>)
-            {
-                const unsigned int* h_dirs;
-                ROCRAND_CHECK(
-                    rocrand_get_direction_vectors32(&h_dirs, ROCRAND_DIRECTION_VECTORS_32_JOEKUO6));
-                unsigned int* d_dirs;
-                HIP_CHECK(hipMalloc(&d_dirs, size_dirs * sizeof(unsigned int)));
-                HIP_CHECK(hipMemcpy(d_dirs,
-                                    h_dirs,
-                                    size_dirs * sizeof(unsigned int),
-                                    hipMemcpyHostToDevice));
-
-                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
-                init_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
-                                    dim3(m_threads),
-                                    0,
-                                    stream>>>(d_states, d_dirs, m_offset, padded_blocks_x);
-                HIP_CHECK(hipFree(d_dirs));
-            }
-            else
-            {
-                const unsigned long long* h_dirs;
-                ROCRAND_CHECK(
-                    rocrand_get_direction_vectors64(&h_dirs, ROCRAND_DIRECTION_VECTORS_64_JOEKUO6));
-                unsigned long long* d_dirs;
-                HIP_CHECK(hipMalloc(&d_dirs, size_dirs * sizeof(unsigned long long)));
-                HIP_CHECK(hipMemcpy(d_dirs,
-                                    h_dirs,
-                                    size_dirs * sizeof(unsigned long long),
-                                    hipMemcpyHostToDevice));
-
-                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
-                init_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
-                                    dim3(m_threads),
-                                    0,
-                                    stream>>>(d_states, d_dirs, m_offset, padded_blocks_x);
-                HIP_CHECK(hipFree(d_dirs));
-            }
-        }
-        else if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                          || std::is_same_v<State, rocrand_state_sobol64>
+                          || std::is_same_v<State, rocrand_state_scrambled_sobol32>
                           || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
         {
-            if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>)
+            // Determine direction vector size
+            constexpr size_t dir_bytes
+                = std::is_same_v<State, rocrand_state_sobol32>
+                          || std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                      ? 32
+                      : 64;
+
+            // Determine type of direction vector
+            using dir_type = std::conditional_t<dir_bytes == 32, unsigned int, unsigned long long>;
+
+            const dir_type* h_dirs{};
+            const dir_type* h_consts{}; // only used for scrambled
+
+            // Get host vectors
+            if constexpr(std::is_same_v<State, rocrand_state_sobol32>)
             {
-                const unsigned int* h_dirs;
-                const unsigned int* h_consts;
+                ROCRAND_CHECK(
+                    rocrand_get_direction_vectors32(&h_dirs, ROCRAND_DIRECTION_VECTORS_32_JOEKUO6));
+            }
+            else if constexpr(std::is_same_v<State, rocrand_state_sobol64>)
+            {
+                ROCRAND_CHECK(
+                    rocrand_get_direction_vectors64(&h_dirs, ROCRAND_DIRECTION_VECTORS_64_JOEKUO6));
+            }
+            else if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>)
+            {
                 ROCRAND_CHECK(rocrand_get_direction_vectors32(
                     &h_dirs,
                     ROCRAND_SCRAMBLED_DIRECTION_VECTORS_32_JOEKUO6));
                 ROCRAND_CHECK(rocrand_get_scramble_constants32(&h_consts));
-
-                unsigned int* d_dirs;
-                unsigned int* d_consts;
-                HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * 32 * sizeof(unsigned int)));
-                HIP_CHECK(hipMalloc(&d_consts, m_dimensions * sizeof(unsigned int)));
-                HIP_CHECK(hipMemcpy(d_dirs,
-                                    h_dirs,
-                                    m_dimensions * 32 * sizeof(unsigned int),
-                                    hipMemcpyHostToDevice));
-                HIP_CHECK(hipMemcpy(d_consts,
-                                    h_consts,
-                                    m_dimensions * sizeof(unsigned int),
-                                    hipMemcpyHostToDevice));
-
-                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
-                init_scrambled_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
-                                              dim3(m_threads),
-                                              0,
-                                              stream>>>(d_states,
-                                                        d_dirs,
-                                                        d_consts,
-                                                        m_offset,
-                                                        padded_blocks_x);
-
-                HIP_CHECK(hipFree(d_dirs));
-                HIP_CHECK(hipFree(d_consts));
             }
-            else
+            else // scrambled_sobol64
             {
-                const unsigned long long* h_dirs;
-                const unsigned long long* h_consts;
                 ROCRAND_CHECK(rocrand_get_direction_vectors64(
                     &h_dirs,
                     ROCRAND_SCRAMBLED_DIRECTION_VECTORS_64_JOEKUO6));
                 ROCRAND_CHECK(rocrand_get_scramble_constants64(&h_consts));
+            }
 
-                unsigned long long* d_dirs;
-                unsigned long long* d_consts;
-                HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * 64 * sizeof(unsigned long long)));
-                HIP_CHECK(hipMalloc(&d_consts, m_dimensions * sizeof(unsigned long long)));
-                HIP_CHECK(hipMemcpy(d_dirs,
-                                    h_dirs,
-                                    m_dimensions * 64 * sizeof(unsigned long long),
-                                    hipMemcpyHostToDevice));
+            // Allocate device memory
+            dir_type* d_dirs{};
+            dir_type* d_consts{}; // only used for scrambled
+
+            HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * dir_bytes * sizeof(dir_type)));
+            HIP_CHECK(hipMemcpy(d_dirs,
+                                h_dirs,
+                                m_dimensions * dir_bytes * sizeof(dir_type),
+                                hipMemcpyHostToDevice));
+
+            if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                         || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
+            {
+                HIP_CHECK(hipMalloc(&d_consts, m_dimensions * sizeof(dir_type)));
                 HIP_CHECK(hipMemcpy(d_consts,
                                     h_consts,
-                                    m_dimensions * sizeof(unsigned long long),
+                                    m_dimensions * sizeof(dir_type),
                                     hipMemcpyHostToDevice));
+            }
 
-                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
+            const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
+
+            if constexpr(std::is_same_v<State, rocrand_state_sobol32>
+                         || std::is_same_v<State, rocrand_state_sobol64>)
+            {
+                init_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
+                                    dim3(m_threads),
+                                    0,
+                                    stream>>>(d_states, d_dirs, m_offset, padded_blocks_x);
+            }
+            else
+            {
                 init_scrambled_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
                                               dim3(m_threads),
                                               0,
@@ -318,10 +288,10 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                                                         d_consts,
                                                         m_offset,
                                                         padded_blocks_x);
-
-                HIP_CHECK(hipFree(d_dirs));
                 HIP_CHECK(hipFree(d_consts));
             }
+
+            HIP_CHECK(hipFree(d_dirs));
         }
         else
         {
