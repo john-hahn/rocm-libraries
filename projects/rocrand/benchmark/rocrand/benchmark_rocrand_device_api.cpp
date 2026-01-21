@@ -18,6 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include "benchmark_rocrand_occupancy_helper.hpp"
 #include "benchmark_rocrand_utils.hpp"
 
 #include <hip/hip_runtime.h>
@@ -30,1018 +31,343 @@
 #include <iomanip>
 #include <iostream>
 #include <numeric>
+#include <optional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
-#include "benchmark_rocrand_occupancy_helper.hpp"
-
-// Duplicate from rocrand.h. Default maximum thread count for most generators.
-// Higher values (like 1024) typically cause register pressure and slowdowns
-// in state-heavy generators like Sobol.
-#ifndef ROCRAND_DEFAULT_MAX_BLOCK_SIZE
-    #define ROCRAND_DEFAULT_MAX_BLOCK_SIZE 256
-#endif
-
-// Specifically for Threefry.
-// Threefry has very low register usage, so 1024 threads
-// helps hide memory latency better.
-#ifndef ROCRAND_THREEFRY_MAX_BLOCK_SIZE
-    #define ROCRAND_THREEFRY_MAX_BLOCK_SIZE 1024
-#endif
-
-template<typename EngineState,
-         typename std::enable_if<
-             !std::is_same<EngineState, rocrand_state_threefry2x32_20>::value>::type* = nullptr>
-__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void init_kernel(EngineState*             states,
-                 const unsigned long long seed,
-                 const unsigned long long offset)
+template<typename State>
+__device__
+inline void rocrand_init_helper(unsigned long long seed,
+                                unsigned long long subsequence,
+                                unsigned long long offset,
+                                State*             state)
 {
-    const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
-    EngineState        state;
-    rocrand_init(seed, state_id, offset, &state);
-    states[state_id] = state;
-}
-
-template<typename EngineState,
-         typename std::enable_if<
-             std::is_same<EngineState, rocrand_state_threefry2x32_20>::value>::type* = nullptr>
-__global__ __launch_bounds__(ROCRAND_THREEFRY_MAX_BLOCK_SIZE)
-void init_kernel(EngineState*             states,
-                 const unsigned long long seed,
-                 const unsigned long long offset)
-{
-    const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
-    EngineState        state;
-    rocrand_init(seed, state_id, offset, &state);
-    states[state_id] = state;
-}
-
-template<typename EngineState,
-         typename T,
-         typename Generator,
-         typename std::enable_if<
-             !std::is_same<EngineState, rocrand_state_threefry2x32_20>::value>::type* = nullptr>
-__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void generate_kernel(EngineState* states, T* data, const size_t size, Generator generator)
-{
-    const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned int stride   = gridDim.x * blockDim.x;
-
-    EngineState  state = states[state_id];
-    unsigned int index = state_id;
-    while(index < size)
-    {
-        data[index] = generator(&state);
-        index += stride;
-    }
-    states[state_id] = state;
-}
-
-template<typename EngineState,
-         typename T,
-         typename Generator,
-         typename std::enable_if<
-             std::is_same<EngineState, rocrand_state_threefry2x32_20>::value>::type* = nullptr>
-__global__ __launch_bounds__(ROCRAND_THREEFRY_MAX_BLOCK_SIZE)
-void generate_kernel(EngineState* states, T* data, const size_t size, Generator generator)
-{
-    const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned int stride   = gridDim.x * blockDim.x;
-
-    EngineState  state = states[state_id];
-    unsigned int index = state_id;
-    while(index < size)
-    {
-        data[index] = generator(&state);
-        index += stride;
-    }
-    states[state_id] = state;
-}
-
-template<typename EngineState>
-struct runner
-{
-    EngineState* states;
-
-    runner(const size_t /* dimensions */,
-           const size_t             blocks,
-           const size_t             threads,
-           const unsigned long long seed,
-           const unsigned long long offset)
-    {
-        const size_t states_size = blocks * threads;
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(EngineState)));
-
-        init_kernel<<<dim3(blocks), dim3(threads)>>>(states, seed, offset);
-
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
-    }
-
-    ~runner()
-    {
-        HIP_CHECK(hipFree(states));
-    }
-
-    template<typename T, typename Generator>
-    void generate(const size_t     blocks,
-                  const size_t     threads,
-                  hipStream_t      stream,
-                  T*               data,
-                  const size_t     size,
-                  const Generator& generator)
-    {
-        generate_kernel<<<dim3(blocks), dim3(threads), 0, stream>>>(states, data, size, generator);
-    }
-};
-
-template<typename T, typename Generator>
-__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void generate_kernel(rocrand_state_mtgp32* states, T* data, const size_t size, Generator generator)
-{
-    const unsigned int   state_id = blockIdx.x;
-    unsigned int         index    = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int         stride   = gridDim.x * blockDim.x;
-
-    __shared__
-    rocrand_state_mtgp32 state;
-    rocrand_mtgp32_block_copy(&states[state_id], &state);
-
-    const size_t r                 = size % blockDim.x;
-    const size_t size_rounded_down = size - r;
-    const size_t size_rounded_up   = r == 0 ? size : size_rounded_down + blockDim.x;
-    while(index < size_rounded_down)
-    {
-        data[index] = generator(&state);
-        index += stride;
-    }
-    while(index < size_rounded_up)
-    {
-        auto value = generator(&state);
-        if(index < size)
-            data[index] = value;
-        index += stride;
-    }
-
-    rocrand_mtgp32_block_copy(&state, &states[state_id]);
+    rocrand_init(seed, subsequence, offset, state);
 }
 
 template<>
-struct runner<rocrand_state_mtgp32>
+__device__
+inline void rocrand_init_helper<rocrand_state_lfsr113>(unsigned long long /*seed*/,
+                                                       unsigned long long subsequence,
+                                                       unsigned long long /*offset*/,
+                                                       rocrand_state_lfsr113* state)
 {
-    rocrand_state_mtgp32* states;
-
-    runner(const size_t /* dimensions */,
-           const size_t blocks,
-           const size_t /* threads */,
-           const unsigned long long seed,
-           const unsigned long long /* offset */)
-    {
-        const size_t states_size = std::min((size_t)200, blocks);
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_mtgp32)));
-
-        ROCRAND_CHECK(
-            rocrand_make_state_mtgp32(states, mtgp32dc_params_fast_11213, states_size, seed));
-    }
-
-    ~runner()
-    {
-        HIP_CHECK(hipFree(states));
-    }
-
-    template<typename T, typename Generator>
-    void generate(const size_t blocks,
-                  const size_t /* threads */,
-                  hipStream_t      stream,
-                  T*               data,
-                  const size_t     size,
-                  const Generator& generator)
-    {
-        generate_kernel<<<dim3(std::min((size_t)200, blocks)), dim3(256), 0, stream>>>(states,
-                                                                                       data,
-                                                                                       size,
-                                                                                       generator);
-    }
-};
-
-__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void init_kernel(rocrand_state_lfsr113* states, const uint4 seed)
-{
-    const unsigned int    state_id = blockIdx.x * blockDim.x + threadIdx.x;
-    rocrand_state_lfsr113 state;
-    rocrand_init(seed, state_id, &state);
-    states[state_id] = state;
+    rocrand_init(uint4{ROCRAND_LFSR113_DEFAULT_SEED_X,
+                       ROCRAND_LFSR113_DEFAULT_SEED_Y,
+                       ROCRAND_LFSR113_DEFAULT_SEED_Z,
+                       ROCRAND_LFSR113_DEFAULT_SEED_W},
+                 static_cast<unsigned int>(subsequence),
+                 state);
 }
 
-template<>
-struct runner<rocrand_state_lfsr113>
+template<typename State>
+__global__
+void init_states_kernel(State* states, unsigned long long seed, unsigned long long offset)
 {
-    rocrand_state_lfsr113* states;
-
-    runner(const size_t /* dimensions */,
-           const size_t blocks,
-           const size_t threads,
-           const unsigned long long /* seed */,
-           const unsigned long long /* offset */)
-    {
-        const size_t states_size = blocks * threads;
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_lfsr113)));
-
-        hipLaunchKernelGGL(HIP_KERNEL_NAME(init_kernel),
-                           dim3(blocks),
-                           dim3(threads),
-                           0,
-                           0,
-                           states,
-                           uint4{ROCRAND_LFSR113_DEFAULT_SEED_X,
-                                 ROCRAND_LFSR113_DEFAULT_SEED_Y,
-                                 ROCRAND_LFSR113_DEFAULT_SEED_Z,
-                                 ROCRAND_LFSR113_DEFAULT_SEED_W});
-
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
-    }
-
-    ~runner()
-    {
-        HIP_CHECK(hipFree(states));
-    }
-
-    template<typename T, typename Generator>
-    void generate(const size_t     blocks,
-                  const size_t     threads,
-                  hipStream_t      stream,
-                  T*               data,
-                  const size_t     size,
-                  const Generator& generator)
-    {
-        hipLaunchKernelGGL(HIP_KERNEL_NAME(generate_kernel),
-                           dim3(blocks),
-                           dim3(threads),
-                           0,
-                           stream,
-                           states,
-                           data,
-                           size,
-                           generator);
-    }
-};
-
-template<typename EngineState, typename SobolType>
-__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void init_sobol_kernel(EngineState* states, SobolType* directions, SobolType offset)
-{
-    const unsigned int dimension = blockIdx.y;
-    const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
-    EngineState        state;
-    rocrand_init(&directions[dimension * sizeof(SobolType) * 8], offset + state_id, &state);
-    states[gridDim.x * blockDim.x * dimension + state_id] = state;
+    const unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    rocrand_init_helper<State>(seed, tid, offset, &states[tid]);
 }
 
-template<typename EngineState, typename SobolType>
-__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void init_scrambled_sobol_kernel(EngineState* states,
-                                 SobolType*   directions,
-                                 SobolType*   scramble_constants,
-                                 SobolType    offset)
+template<typename State, typename T, typename Generator>
+__global__
+void generate_kernel(State* states, T* data, size_t size, Generator generator)
 {
-    const unsigned int dimension = blockIdx.y;
-    const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
-    EngineState        state;
-    rocrand_init(&directions[dimension * sizeof(SobolType) * 8],
-                 scramble_constants[dimension],
-                 offset + state_id,
-                 &state);
-    states[gridDim.x * blockDim.x * dimension + state_id] = state;
+    const unsigned int tid    = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int stride = gridDim.x * blockDim.x;
+
+    State state = states[tid];
+    for(size_t i = tid; i < size; i += stride)
+        data[i] = generator(state);
+    states[tid] = state;
 }
 
-// generate_kernel for the normal and scrambled sobol generators
-template<typename EngineState, typename T, typename Generator>
-__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void generate_sobol_kernel(EngineState* states, T* data, const size_t size, Generator generator)
+enum distribution
 {
-    const unsigned int dimension = blockIdx.y;
-    const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned int stride    = gridDim.x * blockDim.x;
+    DISTRIBUTION_DEFAULT,
+    DISTRIBUTION_UNIFORM,
+    DISTRIBUTION_NORMAL,
+    DISTRIBUTION_LOG_NORMAL,
+    DISTRIBUTION_POISSON,
+    DISTRIBUTION_DISCRETE_POISSON,
+    DISTRIBUTION_DISCRETE_CUSTOM,
+};
 
-    EngineState  state  = states[gridDim.x * blockDim.x * dimension + state_id];
-    const size_t offset = dimension * size;
-    unsigned int index  = state_id;
-    while(index < size)
+constexpr const char* distribution_name(distribution d)
+{
+    switch(d)
     {
-        data[offset + index] = generator(&state);
-        skipahead(stride - 1, &state);
-        index += stride;
+        case DISTRIBUTION_DEFAULT: return "default";
+        case DISTRIBUTION_UNIFORM: return "uniform";
+        case DISTRIBUTION_NORMAL: return "normal";
+        case DISTRIBUTION_LOG_NORMAL: return "log_normal";
+        case DISTRIBUTION_POISSON: return "poisson";
+        case DISTRIBUTION_DISCRETE_POISSON: return "discrete_poisson";
+        case DISTRIBUTION_DISCRETE_CUSTOM: return "discrete_custom";
     }
-    state = states[gridDim.x * blockDim.x * dimension + state_id];
-    skipahead(static_cast<unsigned int>(size), &state);
-    states[gridDim.x * blockDim.x * dimension + state_id] = state;
+    return "unknown";
 }
 
-template<>
-struct runner<rocrand_state_sobol32>
-{
-    rocrand_state_sobol32* states;
-    size_t                 dimensions;
-    dim3                   grid_config;
-    dim3                   block_config;
-
-    runner(const size_t dims,
-           const size_t blocks,
-           const size_t threads,
-           const unsigned long long /* seed */,
-           const unsigned long long offset)
-    {
-        dimensions   = dims;
-        block_config = dim3(static_cast<unsigned int>(threads));
-
-        const size_t blocks_x = next_power2((blocks + dimensions - 1) / dimensions);
-        grid_config
-            = dim3(static_cast<unsigned int>(blocks_x), static_cast<unsigned int>(dimensions));
-
-        const size_t states_size = grid_config.x * grid_config.y * block_config.x;
-
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_sobol32)));
-
-        const unsigned int* h_directions;
-        ROCRAND_CHECK(
-            rocrand_get_direction_vectors32(&h_directions, ROCRAND_DIRECTION_VECTORS_32_JOEKUO6));
-
-        unsigned int* directions;
-        const size_t  size = dimensions * 32 * sizeof(unsigned int);
-        HIP_CHECK(hipMalloc(&directions, size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
-
-        init_sobol_kernel<<<grid_config, block_config>>>(states,
-                                                         directions,
-                                                         static_cast<unsigned int>(offset));
-
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
-
-        HIP_CHECK(hipFree(directions));
-    }
-
-    ~runner()
-    {
-        HIP_CHECK(hipFree(states));
-    }
-
-    /**
-    * @note blocks and threads arguments are ignored. This runner uses the 
-    * grid_config and block_config determined during construction to ensure
-    * valid indexing into the dimension-arranged state array.
-    */
-    template<typename T, typename Generator>
-    void generate(const size_t /*blocks*/,
-                  const size_t /*threads*/,
-                  hipStream_t      stream,
-                  T*               data,
-                  const size_t     size,
-                  const Generator& generator)
-    {
-        generate_sobol_kernel<<<grid_config, block_config, 0, stream>>>(states,
-                                                                        data,
-                                                                        size / dimensions,
-                                                                        generator);
-    }
-};
-
-template<>
-struct runner<rocrand_state_scrambled_sobol32>
-{
-    rocrand_state_scrambled_sobol32* states;
-    size_t                           dimensions;
-    dim3                             grid_config;
-    dim3                             block_config;
-
-    runner(const size_t dims,
-           const size_t blocks,
-           const size_t threads,
-           const unsigned long long /* seed */,
-           const unsigned long long offset)
-    {
-        dimensions   = dims;
-        block_config = dim3(static_cast<unsigned int>(threads));
-
-        const size_t blocks_x = next_power2((blocks + dimensions - 1) / dimensions);
-        grid_config
-            = dim3(static_cast<unsigned int>(blocks_x), static_cast<unsigned int>(dimensions));
-
-        const size_t states_size
-            = static_cast<size_t>(grid_config.x) * grid_config.y * block_config.x;
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_scrambled_sobol32)));
-
-        const unsigned int* h_directions;
-        const unsigned int* h_constants;
-
-        ROCRAND_CHECK(
-            rocrand_get_direction_vectors32(&h_directions,
-                                            ROCRAND_SCRAMBLED_DIRECTION_VECTORS_32_JOEKUO6));
-        ROCRAND_CHECK(rocrand_get_scramble_constants32(&h_constants));
-
-        unsigned int* directions;
-        const size_t  directions_size = dimensions * 32 * sizeof(unsigned int);
-        HIP_CHECK(hipMalloc(&directions, directions_size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
-
-        unsigned int* scramble_constants;
-        const size_t  constants_size = dimensions * sizeof(unsigned int);
-        HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
-        HIP_CHECK(
-            hipMemcpy(scramble_constants, h_constants, constants_size, hipMemcpyHostToDevice));
-
-        init_scrambled_sobol_kernel<<<grid_config, block_config>>>(
-            states,
-            directions,
-            scramble_constants,
-            static_cast<unsigned int>(offset));
-
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
-
-        HIP_CHECK(hipFree(directions));
-        HIP_CHECK(hipFree(scramble_constants));
-    }
-
-    ~runner()
-    {
-        HIP_CHECK(hipFree(states));
-    }
-
-    /**
-    * @note blocks and threads arguments are ignored. This runner uses the 
-    * grid_config and block_config determined during construction to ensure
-    * valid indexing into the dimension-arranged state array.
-    */
-    template<typename T, typename Generator>
-    void generate(const size_t /*blocks*/,
-                  const size_t /*threads*/,
-                  hipStream_t      stream,
-                  T*               data,
-                  const size_t     size,
-                  const Generator& generator)
-    {
-        generate_sobol_kernel<<<grid_config, block_config, 0, stream>>>(states,
-                                                                        data,
-                                                                        size / dimensions,
-                                                                        generator);
-    }
-};
-
-template<>
-struct runner<rocrand_state_sobol64>
-{
-    rocrand_state_sobol64* states;
-    size_t                 dimensions;
-    dim3                   grid_config;
-    dim3                   block_config;
-
-    runner(const size_t dims,
-           const size_t blocks,
-           const size_t threads,
-           const unsigned long long /* seed */,
-           const unsigned long long offset)
-    {
-
-        dimensions   = dims;
-        block_config = dim3(static_cast<unsigned int>(threads));
-
-        const size_t blocks_x = next_power2((blocks + dimensions - 1) / dimensions);
-        grid_config
-            = dim3(static_cast<unsigned int>(blocks_x), static_cast<unsigned int>(dimensions));
-
-        const size_t states_size
-            = static_cast<size_t>(grid_config.x) * grid_config.y * block_config.x;
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_sobol64)));
-
-        const unsigned long long* h_directions;
-        ROCRAND_CHECK(
-            rocrand_get_direction_vectors64(&h_directions, ROCRAND_DIRECTION_VECTORS_64_JOEKUO6));
-
-        unsigned long long int* directions;
-        const size_t            size = dimensions * 64 * sizeof(unsigned long long int);
-        HIP_CHECK(hipMalloc(&directions, size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, size, hipMemcpyHostToDevice));
-
-        init_sobol_kernel<<<grid_config, block_config>>>(states, directions, offset);
-
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
-
-        HIP_CHECK(hipFree(directions));
-    }
-
-    ~runner()
-    {
-        HIP_CHECK(hipFree(states));
-    }
-
-    /**
-    * @note blocks and threads arguments are ignored. This runner uses the 
-    * grid_config and block_config determined during construction to ensure
-    * valid indexing into the dimension-arranged state array.
-    */
-    template<typename T, typename Generator>
-    void generate(const size_t /*blocks*/,
-                  const size_t /*threads*/,
-                  hipStream_t      stream,
-                  T*               data,
-                  const size_t     size,
-                  const Generator& generator)
-    {
-        generate_sobol_kernel<<<grid_config, block_config, 0, stream>>>(states,
-                                                                        data,
-                                                                        size / dimensions,
-                                                                        generator);
-    }
-};
-
-template<>
-struct runner<rocrand_state_scrambled_sobol64>
-{
-    rocrand_state_scrambled_sobol64* states;
-    size_t                           dimensions;
-    dim3                             grid_config;
-    dim3                             block_config;
-
-    runner(const size_t dims,
-           const size_t blocks,
-           const size_t threads,
-           const unsigned long long /* seed */,
-           const unsigned long long offset)
-    {
-        dimensions   = dims;
-        block_config = dim3(static_cast<unsigned int>(threads));
-
-        const size_t blocks_x = next_power2((blocks + dimensions - 1) / dimensions);
-        grid_config
-            = dim3(static_cast<unsigned int>(blocks_x), static_cast<unsigned int>(dimensions));
-
-        const size_t states_size
-            = static_cast<size_t>(grid_config.x) * grid_config.y * block_config.x;
-        HIP_CHECK(hipMalloc(&states, states_size * sizeof(rocrand_state_scrambled_sobol64)));
-
-        const unsigned long long* h_directions;
-        const unsigned long long* h_constants;
-
-        ROCRAND_CHECK(
-            rocrand_get_direction_vectors64(&h_directions,
-                                            ROCRAND_SCRAMBLED_DIRECTION_VECTORS_64_JOEKUO6));
-        ROCRAND_CHECK(rocrand_get_scramble_constants64(&h_constants));
-
-        unsigned long long int* directions;
-        const size_t            directions_size = dimensions * 64 * sizeof(unsigned long long int);
-        HIP_CHECK(hipMalloc(&directions, directions_size));
-        HIP_CHECK(hipMemcpy(directions, h_directions, directions_size, hipMemcpyHostToDevice));
-
-        unsigned long long int* scramble_constants;
-        const size_t            constants_size = dimensions * sizeof(unsigned long long int);
-        HIP_CHECK(hipMalloc(&scramble_constants, constants_size));
-        HIP_CHECK(
-            hipMemcpy(scramble_constants, h_constants, constants_size, hipMemcpyHostToDevice));
-
-        init_scrambled_sobol_kernel<<<grid_config, block_config>>>(states,
-                                                                   directions,
-                                                                   scramble_constants,
-                                                                   offset);
-
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
-
-        HIP_CHECK(hipFree(directions));
-        HIP_CHECK(hipFree(scramble_constants));
-    }
-
-    ~runner()
-    {
-        HIP_CHECK(hipFree(states));
-    }
-
-    /**
-     * @note blocks and threads arguments are ignored. This runner uses the 
-     * grid_config and block_config determined during construction to ensure
-     * valid indexing into the dimension-arranged state array.
-     */
-    template<typename T, typename Generator>
-    void generate(const size_t /*blocks*/,
-                  const size_t /*threads*/,
-                  hipStream_t      stream,
-                  T*               data,
-                  const size_t     size,
-                  const Generator& generator)
-    {
-        generate_sobol_kernel<<<grid_config, block_config, 0, stream>>>(states,
-                                                                        data,
-                                                                        size / dimensions,
-                                                                        generator);
-    }
-};
-
-// Provide optional create and destroy functions for the generators.
-struct generator_type
-{
-    static void create() {}
-
-    static void destroy() {}
-};
-
-template<typename Engine>
-struct generator_uint : public generator_type
-{
-    typedef unsigned int data_type;
-
-    std::string name()
-    {
-        return "uniform-uint";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand(state);
-    }
-};
-
-template<typename Engine>
-struct generator_ullong : public generator_type
-{
-    typedef unsigned long long int data_type;
-
-    std::string name()
-    {
-        return "uniform-ullong";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand(state);
-    }
-};
-
-template<typename Engine>
-struct generator_uniform : public generator_type
-{
-    typedef float data_type;
-
-    std::string name()
-    {
-        return "uniform-float";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand_uniform(state);
-    }
-};
-
-template<typename Engine>
-struct generator_uniform_double : public generator_type
-{
-    typedef double data_type;
-
-    std::string name()
-    {
-        return "uniform-double";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand_uniform_double(state);
-    }
-};
-
-template<typename Engine>
-struct generator_normal : public generator_type
-{
-    typedef float data_type;
-
-    std::string name()
-    {
-        return "normal-float";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand_normal(state);
-    }
-};
-
-template<typename Engine>
-struct generator_normal_double : public generator_type
-{
-    typedef double data_type;
-
-    std::string name()
-    {
-        return "normal-double";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand_normal_double(state);
-    }
-};
-
-template<typename Engine>
-struct generator_log_normal : public generator_type
-{
-    typedef float data_type;
-
-    std::string name()
-    {
-        return "log-normal-float";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand_log_normal(state, 0.f, 1.f);
-    }
-};
-
-template<typename Engine>
-struct generator_log_normal_double : public generator_type
-{
-    typedef double data_type;
-
-    std::string name()
-    {
-        return "log-normal-double";
-    }
-
-    __device__
-    data_type operator()(Engine* state) const
-    {
-        return rocrand_log_normal_double(state, 0., 1.);
-    }
-};
-
-template<typename Engine>
-struct generator_poisson : public generator_type
-{
-    typedef unsigned int data_type;
-
-    std::string name()
-    {
-        std::stringstream stream;
-        stream << std::fixed << std::setprecision(1) << lambda;
-        return "poisson(lambda=" + stream.str() + ")";
-    }
-
-    __device__
-    data_type operator()(Engine* state)
-    {
-        return rocrand_poisson(state, lambda);
-    }
-
-    double lambda;
-};
-
-template<typename Engine>
-struct generator_discrete_poisson : public generator_type
-{
-    typedef unsigned int data_type;
-
-    std::string name()
-    {
-        std::stringstream stream;
-        stream << std::fixed << std::setprecision(1) << lambda;
-        return "discrete-poisson(lambda=" + stream.str() + ")";
-    }
-
-    void create()
-    {
-        ROCRAND_CHECK(rocrand_create_poisson_distribution(lambda, &discrete_distribution));
-    }
-
-    void destroy()
-    {
-        ROCRAND_CHECK(rocrand_destroy_discrete_distribution(discrete_distribution));
-    }
-
-    __device__
-    data_type operator()(Engine* state)
-    {
-        return rocrand_discrete(state, discrete_distribution);
-    }
-
-    rocrand_discrete_distribution discrete_distribution;
-    double                        lambda;
-};
-
-template<typename Engine>
-struct generator_discrete_custom : public generator_type
-{
-    typedef unsigned int data_type;
-
-    std::string name()
-    {
-        return "discrete-custom";
-    }
-
-    void create()
-    {
-        const unsigned int  offset        = 1234;
-        std::vector<double> probabilities = {10, 10, 1, 120, 8, 6, 140, 2, 150, 150, 10, 80};
-
-        double sum = std::accumulate(probabilities.begin(), probabilities.end(), 0.);
-        std::transform(probabilities.begin(),
-                       probabilities.end(),
-                       probabilities.begin(),
-                       [=](double p) { return p / sum; });
-        ROCRAND_CHECK(rocrand_create_discrete_distribution(probabilities.data(),
-                                                           probabilities.size(),
-                                                           offset,
-                                                           &discrete_distribution));
-    }
-
-    void destroy()
-    {
-        ROCRAND_CHECK(rocrand_destroy_discrete_distribution(discrete_distribution));
-    }
-
-    __device__
-    data_type operator()(Engine* state)
-    {
-        return rocrand_discrete(state, discrete_distribution);
-    }
-
-    rocrand_discrete_distribution discrete_distribution;
-};
-
-template<typename Engine, typename Generator>
+template<typename State, typename T, distribution Distribution>
 struct rocrand_device_api_benchmark : public primbench::benchmark_interface
 {
+    rocrand_device_api_benchmark(rocrand_rng_type      engine,
+                                 size_t                blocks,
+                                 size_t                threads,
+                                 size_t                dimensions,
+                                 size_t                offset,
+                                 std::optional<double> poisson_lambda = std::nullopt)
+        : m_engine(engine)
+        , m_blocks(blocks)
+        , m_threads(threads)
+        , m_dimensions(dimensions)
+        , m_offset(offset)
+        , m_poisson_lambda(poisson_lambda)
+    {}
+
     primbench::json meta() const override
     {
-        // TODO: Ensure that all template params, constructor params,
-        //       and everything else is put in the returned `meta` primbench object.
-        //       Cross-reference against benchmark_rocrand_host_api.cpp its meta().
-        return primbench::json{}.add("engine", engine_name(m_engine));
+        auto json = primbench::json{}
+                        .add("algo", "rocrand_device_api")
+                        .add("engine", engine_name(m_engine))
+                        .add("type", primbench::name<T>())
+                        .add("distribution", distribution_name(Distribution))
+                        .add("blocks", m_blocks)
+                        .add("threads", m_threads)
+                        .add("dimensions", m_dimensions)
+                        .add("offset", m_offset);
+
+        if constexpr(Distribution == DISTRIBUTION_POISSON
+                     || Distribution == DISTRIBUTION_DISCRETE_POISSON)
+            json.add("poisson_lambda", *m_poisson_lambda);
+
+        return json;
     }
 
     void run(primbench::state& state) override
     {
-        // TODO: Should this be turned into a (not explicitly initialized) member variable?
-        Generator generator;
+        const auto& stream = state.stream;
+        const auto& bytes  = state.bytes;
+        const auto& seed   = state.seed;
 
-        typedef typename Generator::data_type data_type;
+        const size_t items = bytes / sizeof(T);
 
-        const size_t size       = context.size;
-        const size_t dimensions = context.dimensions;
-        const size_t trials     = context.trials;
-        const size_t blocks     = context.blocks;
-        const size_t threads    = context.threads;
+        State* d_states{};
+        T*     d_data{};
+        HIP_CHECK(hipMalloc(&d_states, m_blocks * m_threads * sizeof(State)));
+        HIP_CHECK(hipMalloc(&d_data, items * sizeof(T)));
 
-        generator.create();
+        if constexpr(std::is_same_v<State, rocrand_state_mtgp32>)
+        {
+            const size_t states_size = std::min((size_t)200, m_blocks);
+            ROCRAND_CHECK(
+                rocrand_make_state_mtgp32(d_states, mtgp32dc_params_fast_11213, states_size, seed));
+        }
+        else if constexpr(std::is_same_v<State, rocrand_state_sobol32>
+                          || std::is_same_v<State, rocrand_state_sobol64>)
+        {
+            size_t       dir_bytes = std::is_same_v<State, rocrand_state_sobol32> ? 32 : 64;
+            const size_t size_dirs = m_dimensions * dir_bytes;
+            if constexpr(std::is_same_v<State, rocrand_state_sobol32>)
+            {
+                const unsigned int* h_dirs;
+                ROCRAND_CHECK(
+                    rocrand_get_direction_vectors32(&h_dirs, ROCRAND_DIRECTION_VECTORS_32_JOEKUO6));
+                unsigned int* d_dirs;
+                HIP_CHECK(hipMalloc(&d_dirs, size_dirs * sizeof(unsigned int)));
+                HIP_CHECK(hipMemcpy(d_dirs,
+                                    h_dirs,
+                                    size_dirs * sizeof(unsigned int),
+                                    hipMemcpyHostToDevice));
+            }
+            else
+            {
+                const unsigned long long* h_dirs;
+                ROCRAND_CHECK(
+                    rocrand_get_direction_vectors64(&h_dirs, ROCRAND_DIRECTION_VECTORS_64_JOEKUO6));
+                unsigned long long* d_dirs;
+                HIP_CHECK(hipMalloc(&d_dirs, size_dirs * sizeof(unsigned long long)));
+                HIP_CHECK(hipMemcpy(d_dirs,
+                                    h_dirs,
+                                    size_dirs * sizeof(unsigned long long),
+                                    hipMemcpyHostToDevice));
+            }
+        }
+        else if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                          || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
+        {
+            if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>)
+            {
+                const unsigned int* h_dirs;
+                const unsigned int* h_consts;
+                ROCRAND_CHECK(rocrand_get_direction_vectors32(
+                    &h_dirs,
+                    ROCRAND_SCRAMBLED_DIRECTION_VECTORS_32_JOEKUO6));
+                ROCRAND_CHECK(rocrand_get_scramble_constants32(&h_consts));
+                unsigned int* d_dirs;
+                unsigned int* d_consts;
+                HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * 32 * sizeof(unsigned int)));
+                HIP_CHECK(hipMalloc(&d_consts, m_dimensions * sizeof(unsigned int)));
+                HIP_CHECK(hipMemcpy(d_dirs,
+                                    h_dirs,
+                                    m_dimensions * 32 * sizeof(unsigned int),
+                                    hipMemcpyHostToDevice));
+                HIP_CHECK(hipMemcpy(d_consts,
+                                    h_consts,
+                                    m_dimensions * sizeof(unsigned int),
+                                    hipMemcpyHostToDevice));
+            }
+            else
+            {
+                const unsigned long long* h_dirs;
+                const unsigned long long* h_consts;
+                ROCRAND_CHECK(rocrand_get_direction_vectors64(
+                    &h_dirs,
+                    ROCRAND_SCRAMBLED_DIRECTION_VECTORS_64_JOEKUO6));
+                ROCRAND_CHECK(rocrand_get_scramble_constants64(&h_consts));
+                unsigned long long* d_dirs;
+                unsigned long long* d_consts;
+                HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * 64 * sizeof(unsigned long long)));
+                HIP_CHECK(hipMalloc(&d_consts, m_dimensions * sizeof(unsigned long long)));
+                HIP_CHECK(hipMemcpy(d_dirs,
+                                    h_dirs,
+                                    m_dimensions * 64 * sizeof(unsigned long long),
+                                    hipMemcpyHostToDevice));
+                HIP_CHECK(hipMemcpy(d_consts,
+                                    h_consts,
+                                    m_dimensions * sizeof(unsigned long long),
+                                    hipMemcpyHostToDevice));
+            }
+        }
+        else
+        {
+            init_states_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states, seed, m_offset);
+        }
 
-        data_type* data;
-        HIP_CHECK(hipMalloc(&data, size * sizeof(data_type)));
+        rocrand_discrete_distribution discrete_dist{};
+        if constexpr(Distribution == DISTRIBUTION_DISCRETE_POISSON)
+            ROCRAND_CHECK(rocrand_create_poisson_distribution(*m_poisson_lambda, &discrete_dist));
+        else if constexpr(Distribution == DISTRIBUTION_DISCRETE_CUSTOM)
+        {
+            std::vector<double> probs{10, 10, 1, 120, 8, 6, 140, 2, 150, 150, 10, 80};
+            double              sum = std::accumulate(probs.begin(), probs.end(), 0.0);
+            for(auto& p : probs)
+                p /= sum;
+            ROCRAND_CHECK(rocrand_create_discrete_distribution(probs.data(),
+                                                               probs.size(),
+                                                               m_offset,
+                                                               &discrete_dist));
+        }
 
-        runner<Engine> r(dimensions, blocks, threads, seed, offset);
+        const double poisson_lambda
+            = (Distribution == DISTRIBUTION_POISSON) ? *m_poisson_lambda : 0.0;
+
+        auto gen = [=](auto& state) -> T
+        {
+            if constexpr(Distribution == DISTRIBUTION_DEFAULT && std::is_same_v<T, unsigned int>)
+                return rocrand(&state);
+            else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, float>)
+                return rocrand_uniform(&state);
+            else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, double>)
+                return rocrand_uniform_double(&state);
+            else if constexpr(Distribution == DISTRIBUTION_NORMAL && std::is_same_v<T, float>)
+                return rocrand_normal(&state);
+            else if constexpr(Distribution == DISTRIBUTION_NORMAL && std::is_same_v<T, double>)
+                return rocrand_normal_double(&state);
+            else if constexpr(Distribution == DISTRIBUTION_LOG_NORMAL && std::is_same_v<T, float>)
+                return rocrand_log_normal(&state, 0.0f, 1.0f);
+            else if constexpr(Distribution == DISTRIBUTION_LOG_NORMAL && std::is_same_v<T, double>)
+                return rocrand_log_normal_double(&state, 0.0, 1.0);
+            else if constexpr(Distribution == DISTRIBUTION_POISSON)
+                return rocrand_poisson(&state, poisson_lambda);
+            else if constexpr(Distribution == DISTRIBUTION_DISCRETE_POISSON
+                              || Distribution == DISTRIBUTION_DISCRETE_CUSTOM)
+                return rocrand_discrete(&state, discrete_dist);
+            else
+                static_assert(sizeof(T) == 0, "Unsupported distribution/type combination");
+        };
+        static_assert(std::is_trivially_copyable<decltype(gen)>::value,
+                      "Generator lambda must be trivially copyable to be passed to device kernel.");
 
         state.set_items(items);
-        state.add_writes<data_type>(items);
+        state.add_writes<T>(items);
 
-        state.run([&] { r.generate(blocks, threads, stream, data, size, generator) });
+        state.run(
+            [&]
+            { generate_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states, d_data, items, gen); });
 
-        generator.destroy();
+        if constexpr(Distribution == DISTRIBUTION_DISCRETE_POISSON
+                     || Distribution == DISTRIBUTION_DISCRETE_CUSTOM)
+            ROCRAND_CHECK(rocrand_destroy_discrete_distribution(discrete_dist));
 
-        HIP_CHECK(hipFree(data));
+        HIP_CHECK(hipFree(d_states));
+        HIP_CHECK(hipFree(d_data));
     }
+
+private:
+    rocrand_rng_type      m_engine;
+    size_t                m_blocks;
+    size_t                m_threads;
+    size_t                m_dimensions;
+    size_t                m_offset;
+    std::optional<double> m_poisson_lambda;
 };
 
-#define QUEUE(Engine, GeneratorType, generator)                                         \
-    do                                                                                  \
-    {                                                                                   \
-        static_assert(std::is_trivially_copyable<GeneratorType>::value                  \
-                          && std::is_trivially_destructible<GeneratorType>::value,      \
-                      "Generator gets copied to device at kernel launch.");             \
-                                                                                        \
-        executor.queue<rocrand_device_api_benchmark<Engine, GeneratorType>>(generator); \
-    }                                                                                   \
-    while(0)
+#define QUEUE(T, State, engine, Dist, ...)                                   \
+    executor.queue<rocrand_device_api_benchmark<State, T, Dist>>(engine,     \
+                                                                 blocks,     \
+                                                                 threads,    \
+                                                                 dimensions, \
+                                                                 offset,     \
+                                                                 ##__VA_ARGS__)
 
-// TODO: Rewrite to a macro
-template<typename Engine>
-void add_benchmarks(size_t                     blocks,
-                    size_t                     threads,
-                    const std::vector<double>& poisson_lambdas,
-                    const rocrand_rng_type     engine)
-{
-    constexpr bool is_64_bits = std::is_same<Engine, rocrand_state_scrambled_sobol64>::value
-                                || std::is_same<Engine, rocrand_state_sobol64>::value
-                                || std::is_same<Engine, rocrand_state_threefry2x64_20>::value
-                                || std::is_same<Engine, rocrand_state_threefry4x64_20>::value;
-
-    if constexpr(is_64_bits)
-    {
-        QUEUE(Engine, generator_ullong);
-    }
-    else
-    {
-        QUEUE(Engine, generator_uint);
-    }
-
-    QUEUE(Engine, generator_uniform);
-    QUEUE(Engine, generator_uniform_double);
-    QUEUE(Engine, generator_normal);
-    QUEUE(Engine, generator_normal_double);
-    QUEUE(Engine, generator_log_normal);
-    QUEUE(Engine, generator_log_normal_double);
-
-    for(auto lambda : poisson_lambdas)
-    {
-        generator_poisson gen_poisson;
-        gen_poisson.lambda = lambda;
-        QUEUE(Engine, gen_poisson);
-
-        generator_discrete_poisson gen_discrete_poisson;
-        gen_discrete_poisson.lambda = lambda;
-        QUEUE(Engine, gen_discrete_poisson);
-    }
-
-    QUEUE(Engine, generator_discrete_custom);
-}
-
-#define QUEUE_ENGINE(ENGINE_STATE, RNG_TYPE, KERNEL_NAME)                                        \
-    do                                                                                           \
-    {                                                                                            \
-        auto kernel = generate_kernel<ENGINE_STATE, unsigned int, generator_uint<ENGINE_STATE>>; \
-                                                                                                 \
-        launch_params p = get_benchmark_launch_parameters(kernel,                                \
-                                                          KERNEL_NAME,                           \
-                                                          input_threads,                         \
-                                                          input_blocks,                          \
-                                                          input_provision);                      \
-                                                                                                 \
-        add_benchmarks<ENGINE_STATE>(p.blocks, p.threads, poisson_lambdas, RNG_TYPE);            \
-    }                                                                                            \
+#define QUEUE_DISTRIBUTIONS(State, engine)                                             \
+    do                                                                                 \
+    {                                                                                  \
+        QUEUE(unsigned int, State, engine, DISTRIBUTION_DEFAULT);                      \
+        QUEUE(float, State, engine, DISTRIBUTION_UNIFORM);                             \
+        QUEUE(double, State, engine, DISTRIBUTION_UNIFORM);                            \
+        QUEUE(float, State, engine, DISTRIBUTION_NORMAL);                              \
+        QUEUE(double, State, engine, DISTRIBUTION_NORMAL);                             \
+        QUEUE(float, State, engine, DISTRIBUTION_LOG_NORMAL);                          \
+        QUEUE(double, State, engine, DISTRIBUTION_LOG_NORMAL);                         \
+        for(double lambda : poisson_lambdas)                                           \
+        {                                                                              \
+            QUEUE(unsigned int, State, engine, DISTRIBUTION_POISSON, lambda);          \
+            QUEUE(unsigned int, State, engine, DISTRIBUTION_DISCRETE_POISSON, lambda); \
+        }                                                                              \
+        QUEUE(unsigned int, State, engine, DISTRIBUTION_DISCRETE_CUSTOM);              \
+    }                                                                                  \
     while(0)
 
 int main(int argc, char* argv[])
 {
     primbench::executor executor(argc, argv, 128 * primbench::MiB);
 
-    auto dimensions
-        = executor.get<size_t>("dimensions", 1, "Number of dimensions of quasi-random values");
+    auto blocks     = executor.get<size_t>("blocks", 256, "Number of blocks");
+    auto threads    = executor.get<size_t>("threads", 256, "Threads per block");
+    auto dimensions = executor.get<size_t>("dimensions", 1, "Number of quasi-random dimensions");
+    auto offset     = executor.get<size_t>("offset", 0, "Offset of generated pseudo-random values");
+    auto poisson_lambdas
+        = executor.get<std::vector<double>>("lambda",
+                                            {10.0},
+                                            "Space-separated list of Poisson lambdas");
 
-    auto offset = executor.get<size_t>("offset", 0, "Offset of generated pseudo-random values");
+    QUEUE_DISTRIBUTIONS(rocrand_state_lfsr113, ROCRAND_RNG_PSEUDO_LFSR113);
+    QUEUE_DISTRIBUTIONS(rocrand_state_mrg31k3p, ROCRAND_RNG_PSEUDO_MRG31K3P);
+    QUEUE_DISTRIBUTIONS(rocrand_state_mrg32k3a, ROCRAND_RNG_PSEUDO_MRG32K3A);
+    QUEUE_DISTRIBUTIONS(rocrand_state_philox4x32_10, ROCRAND_RNG_PSEUDO_PHILOX4_32_10);
+    QUEUE_DISTRIBUTIONS(rocrand_state_threefry2x32_20, ROCRAND_RNG_PSEUDO_THREEFRY2_32_20);
+    QUEUE_DISTRIBUTIONS(rocrand_state_threefry4x32_20, ROCRAND_RNG_PSEUDO_THREEFRY4_32_20);
+    QUEUE_DISTRIBUTIONS(rocrand_state_threefry2x64_20, ROCRAND_RNG_PSEUDO_THREEFRY2_64_20);
+    QUEUE_DISTRIBUTIONS(rocrand_state_threefry4x64_20, ROCRAND_RNG_PSEUDO_THREEFRY4_64_20);
+    QUEUE_DISTRIBUTIONS(rocrand_state_xorwow, ROCRAND_RNG_PSEUDO_XORWOW);
 
-    auto poisson_lambdas = executor.get<std::vector<double>>(
-        "lambda",
-        {10.0},
-        "Space-separated list of lambdas of Poisson distribution");
-
-    int input_threads = executor.get<size_t>(
-        "threads",
-        0,
-        "Number of threads in each block. If 0, computed automatically to maximize occupancy");
-
-    int input_blocks = executor.get<size_t>(
-        "blocks",
-        0,
-        "Number of blocks. If 0, computed automatically based on occupancy and provision");
-
-    int input_provision = executor.get<size_t>(
-        "provision",
-        1,
-        "Number of waves per Compute Unit (multiplier for automatic block computation)");
-
-    // MT19937 has no kernel implementation
-    QUEUE_ENGINE(rocrand_state_lfsr113, ROCRAND_RNG_PSEUDO_LFSR113, "lfsr113");
-    QUEUE_ENGINE(rocrand_state_mrg31k3p, ROCRAND_RNG_PSEUDO_MRG31K3P, "mrg31k3p");
-    QUEUE_ENGINE(rocrand_state_mrg32k3a, ROCRAND_RNG_PSEUDO_MRG32K3A, "mrg32k3a");
-    QUEUE_ENGINE(rocrand_state_mtgp32, ROCRAND_RNG_PSEUDO_MTGP32, "mtgp32");
-    QUEUE_ENGINE(rocrand_state_philox4x32_10, ROCRAND_RNG_PSEUDO_PHILOX4_32_10, "philox4x32_10");
-    QUEUE_ENGINE(rocrand_state_scrambled_sobol32,
-                 ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL32,
-                 "scrambled_sobol32");
-    QUEUE_ENGINE(rocrand_state_scrambled_sobol64,
-                 ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL64,
-                 "scrambled_sobol64");
-    QUEUE_ENGINE(rocrand_state_sobol32, ROCRAND_RNG_QUASI_SOBOL32, "sobol32");
-    QUEUE_ENGINE(rocrand_state_sobol64, ROCRAND_RNG_QUASI_SOBOL64, "sobol64");
-    QUEUE_ENGINE(rocrand_state_threefry2x32_20,
-                 ROCRAND_RNG_PSEUDO_THREEFRY2_32_20,
-                 "threefry2x32_20");
-    QUEUE_ENGINE(rocrand_state_threefry4x32_20,
-                 ROCRAND_RNG_PSEUDO_THREEFRY4_32_20,
-                 "threefry4x32_20");
-    QUEUE_ENGINE(rocrand_state_threefry2x64_20,
-                 ROCRAND_RNG_PSEUDO_THREEFRY2_64_20,
-                 "threefry2x64_20");
-    QUEUE_ENGINE(rocrand_state_threefry4x64_20,
-                 ROCRAND_RNG_PSEUDO_THREEFRY4_64_20,
-                 "threefry4x64_20");
-    QUEUE_ENGINE(rocrand_state_xorwow, ROCRAND_RNG_PSEUDO_XORWOW, "xorwow");
+    QUEUE_DISTRIBUTIONS(rocrand_state_mtgp32, ROCRAND_RNG_PSEUDO_MTGP32);
+    QUEUE_DISTRIBUTIONS(rocrand_state_sobol32, ROCRAND_RNG_QUASI_SOBOL32);
+    QUEUE_DISTRIBUTIONS(rocrand_state_scrambled_sobol32, ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL32);
+    QUEUE_DISTRIBUTIONS(rocrand_state_sobol64, ROCRAND_RNG_QUASI_SOBOL64);
+    QUEUE_DISTRIBUTIONS(rocrand_state_scrambled_sobol64, ROCRAND_RNG_QUASI_SCRAMBLED_SOBOL64);
 
     executor.run();
 }
