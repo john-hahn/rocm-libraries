@@ -74,7 +74,7 @@ void init_states_kernel(State* states, unsigned long long seed, unsigned long lo
 
 template<typename State, typename SobolType>
 __global__
-void init_sobol_kernel(State* states, SobolType* directions, size_t offset)
+void init_sobol_kernel(State* states, SobolType* directions, size_t offset, size_t padded_blocks_x)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -83,7 +83,8 @@ void init_sobol_kernel(State* states, SobolType* directions, size_t offset)
     constexpr size_t elements_per_dim = std::is_same_v<State, rocrand_state_sobol32> ? 32 : 64;
     rocrand_init(&directions[dimension * elements_per_dim], offset + state_id, &state);
 
-    states[gridDim.x * blockDim.x * dimension + state_id] = state;
+    // Use padded_blocks_x * blockDim.x to match the padded launch size
+    states[dimension * padded_blocks_x * blockDim.x + state_id] = state;
 }
 
 template<typename State, typename SobolType>
@@ -91,7 +92,8 @@ __global__
 void init_scrambled_sobol_kernel(State*     states,
                                  SobolType* directions,
                                  SobolType* scramble_constants,
-                                 size_t     offset)
+                                 size_t     offset,
+                                 size_t     padded_blocks_x)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -104,7 +106,8 @@ void init_scrambled_sobol_kernel(State*     states,
                  offset + state_id,
                  &state);
 
-    states[gridDim.x * blockDim.x * dimension + state_id] = state;
+    // Use padded_blocks_x * blockDim.x to match the padded launch size
+    states[dimension * padded_blocks_x * blockDim.x + state_id] = state;
 }
 
 template<typename State, typename T, typename Generator>
@@ -219,11 +222,11 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                                     size_dirs * sizeof(unsigned int),
                                     hipMemcpyHostToDevice));
 
-                const size_t blocks_x = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
-                init_sobol_kernel<<<dim3(blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
-                    d_states,
-                    d_dirs,
-                    m_offset);
+                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
+                init_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
+                                    dim3(m_threads),
+                                    0,
+                                    stream>>>(d_states, d_dirs, m_offset, padded_blocks_x);
                 HIP_CHECK(hipFree(d_dirs));
             }
             else
@@ -238,11 +241,11 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                                     size_dirs * sizeof(unsigned long long),
                                     hipMemcpyHostToDevice));
 
-                const size_t blocks_x = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
-                init_sobol_kernel<<<dim3(blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
-                    d_states,
-                    d_dirs,
-                    m_offset);
+                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
+                init_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
+                                    dim3(m_threads),
+                                    0,
+                                    stream>>>(d_states, d_dirs, m_offset, padded_blocks_x);
                 HIP_CHECK(hipFree(d_dirs));
             }
         }
@@ -271,11 +274,15 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                                     m_dimensions * sizeof(unsigned int),
                                     hipMemcpyHostToDevice));
 
-                const size_t blocks_x = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
-                init_scrambled_sobol_kernel<<<dim3(blocks_x, m_dimensions),
+                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
+                init_scrambled_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
                                               dim3(m_threads),
                                               0,
-                                              stream>>>(d_states, d_dirs, d_consts, m_offset);
+                                              stream>>>(d_states,
+                                                        d_dirs,
+                                                        d_consts,
+                                                        m_offset,
+                                                        padded_blocks_x);
 
                 HIP_CHECK(hipFree(d_dirs));
                 HIP_CHECK(hipFree(d_consts));
@@ -302,11 +309,15 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                                     m_dimensions * sizeof(unsigned long long),
                                     hipMemcpyHostToDevice));
 
-                const size_t blocks_x = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
-                init_scrambled_sobol_kernel<<<dim3(blocks_x, m_dimensions),
+                const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
+                init_scrambled_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
                                               dim3(m_threads),
                                               0,
-                                              stream>>>(d_states, d_dirs, d_consts, m_offset);
+                                              stream>>>(d_states,
+                                                        d_dirs,
+                                                        d_consts,
+                                                        m_offset,
+                                                        padded_blocks_x);
 
                 HIP_CHECK(hipFree(d_dirs));
                 HIP_CHECK(hipFree(d_consts));
