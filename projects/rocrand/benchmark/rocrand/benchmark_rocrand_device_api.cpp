@@ -80,7 +80,7 @@ void init_sobol_kernel(State* states, SobolType* directions, size_t offset, size
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
     State              state{};
 
-    constexpr size_t elements_per_dim = std::is_same_v<State, rocrand_state_sobol32> ? 32 : 64;
+    constexpr size_t elements_per_dim = sizeof(SobolType) * 8;
     rocrand_init(&directions[dimension * elements_per_dim], offset + state_id, &state);
 
     // Use padded_blocks_x * blockDim.x to match the padded launch size
@@ -99,8 +99,7 @@ void init_scrambled_sobol_kernel(State*     states,
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
     State              state{};
 
-    constexpr size_t elements_per_dim
-        = std::is_same_v<State, rocrand_state_scrambled_sobol32> ? 32 : 64;
+    constexpr size_t elements_per_dim = sizeof(SobolType) * 8;
     rocrand_init(&directions[dimension * elements_per_dim],
                  scramble_constants[dimension],
                  offset + state_id,
