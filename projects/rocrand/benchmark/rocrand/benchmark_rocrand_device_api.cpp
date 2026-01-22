@@ -57,11 +57,11 @@ void init_states_kernel(State* states, unsigned long long seed, unsigned long lo
     }
 }
 
-template<typename State, typename SobolType, bool Scrambled = false>
+template<typename State, typename SobolType>
 __global__
 void init_sobol_kernel(State*     states,
                        SobolType* directions,
-                       SobolType* scramble_constants, // can be nullptr if not scrambled
+                       SobolType* scramble_constants,
                        size_t     offset,
                        size_t     padded_blocks_x)
 {
@@ -71,7 +71,8 @@ void init_sobol_kernel(State*     states,
 
     constexpr size_t elements_per_dim = sizeof(SobolType) * 8;
 
-    if constexpr(Scrambled)
+    if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                 || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
     {
         rocrand_init(&directions[dimension * elements_per_dim],
                      scramble_constants[dimension],
@@ -268,7 +269,7 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                          || std::is_same_v<State, rocrand_state_sobol64>)
             {
                 // Plain Sobol
-                init_sobol_kernel<State, dir_type, false>
+                init_sobol_kernel<State, dir_type>
                     <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
                         d_states,
                         d_dirs,
@@ -279,7 +280,7 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
             else
             {
                 // Scrambled Sobol
-                init_sobol_kernel<State, dir_type, true>
+                init_sobol_kernel<State, dir_type>
                     <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
                         d_states,
                         d_dirs,
