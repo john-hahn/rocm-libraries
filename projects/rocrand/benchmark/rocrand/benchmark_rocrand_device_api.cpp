@@ -36,25 +36,12 @@
 #include <type_traits>
 #include <vector>
 
-template<typename State>
+template<typename State, typename Seed>
 __global__
-void init_states_kernel(State* states, unsigned long long seed, unsigned long long offset)
+void init_states_kernel(State* states, Seed seed, unsigned long long offset)
 {
     const unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if constexpr(std::is_same_v<State, rocrand_state_lfsr113>)
-    {
-        rocrand_init(uint4{ROCRAND_LFSR113_DEFAULT_SEED_X,
-                           ROCRAND_LFSR113_DEFAULT_SEED_Y,
-                           ROCRAND_LFSR113_DEFAULT_SEED_Z,
-                           ROCRAND_LFSR113_DEFAULT_SEED_W},
-                     tid,
-                     &states[tid]);
-    }
-    else
-    {
-        rocrand_init(seed, tid, offset, &states[tid]);
-    }
+    rocrand_init(seed, tid, offset, &states[tid]);
 }
 
 template<typename State, typename SobolType>
@@ -84,7 +71,6 @@ void init_sobol_kernel(State*     states,
         rocrand_init(&directions[dimension * elements_per_dim], offset + state_id, &state);
     }
 
-    // Use padded_blocks_x * blockDim.x to match the padded launch size
     states[dimension * padded_blocks_x * blockDim.x + state_id] = state;
 }
 
@@ -265,32 +251,30 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
             const size_t padded_blocks_x
                 = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
 
-            if constexpr(std::is_same_v<State, rocrand_state_sobol32>
-                         || std::is_same_v<State, rocrand_state_sobol64>)
+            init_sobol_kernel<State, dir_type>
+                <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
+                    d_states,
+                    d_dirs,
+                    d_scramble_consts,
+                    m_offset,
+                    padded_blocks_x);
+
+            if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                         || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
             {
-                // Plain Sobol
-                init_sobol_kernel<State, dir_type>
-                    <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
-                        d_states,
-                        d_dirs,
-                        nullptr,
-                        m_offset,
-                        padded_blocks_x);
-            }
-            else
-            {
-                // Scrambled Sobol
-                init_sobol_kernel<State, dir_type>
-                    <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
-                        d_states,
-                        d_dirs,
-                        d_scramble_consts,
-                        m_offset,
-                        padded_blocks_x);
                 HIP_CHECK(hipFree(d_scramble_consts));
             }
 
             HIP_CHECK(hipFree(d_dirs));
+        }
+        else if constexpr(std::is_same_v<State, rocrand_state_lfsr113>)
+        {
+            const uint4 lfsr_seed{ROCRAND_LFSR113_DEFAULT_SEED_X,
+                                  ROCRAND_LFSR113_DEFAULT_SEED_Y,
+                                  ROCRAND_LFSR113_DEFAULT_SEED_Z,
+                                  ROCRAND_LFSR113_DEFAULT_SEED_W};
+
+            init_states_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states, lfsr_seed, m_offset);
         }
         else
         {
