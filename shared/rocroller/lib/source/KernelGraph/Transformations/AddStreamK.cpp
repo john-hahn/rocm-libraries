@@ -2,7 +2,7 @@
  *
  * MIT License
  *
- * Copyright 2024-2025 AMD ROCm(TM) Software
+ * Copyright 2024-2026 AMD ROCm(TM) Software
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -1478,8 +1478,9 @@ namespace rocRoller
             //   1. Pulls a value from a CommandArgument
             //   2. Is a literal (for testing)
 
-            argInfo.numWGs = k->addArgument(
-                {rocRoller::NUMWGS, numWGsDT, DataDirection::ReadOnly, convert(numWGsDT, numWGs)});
+            //argInfo.numWGs = k->addArgument(
+            //    {rocRoller::NUMWGS, numWGsDT, DataDirection::ReadOnly, convert(numWGsDT, numWGs)});
+            argInfo.numWGs = convert(numWGsDT, numWGs);
 
             // Fill number-of-tiles using MacroTileNumber sizes
             // from load operations (store operations are missing
@@ -1531,18 +1532,20 @@ namespace rocRoller
                 if(argInfo.numTileArgExprs[d] == nullptr)
                     continue;
 
-                argInfo.numTiles.push_back(k->addArgument({concatenate("numTiles", d),
-                                                           numTilesDT,
-                                                           DataDirection::ReadOnly,
-                                                           argInfo.numTileArgExprs[d]}));
+                argInfo.numTiles.push_back(argInfo.numTileArgExprs[d]);
+                //argInfo.numTiles.push_back(k->addArgument({concatenate("numTiles", d),
+                //                                           numTilesDT,
+                //                                           DataDirection::ReadOnly,
+                //                                           argInfo.numTileArgExprs[d]}));
                 if(d > 0)
                     enableDivideBy(argInfo.numTiles.back(), context);
             }
 
-            argInfo.numTiles.push_back(k->addArgument({"numTilesAcc",
-                                                       numTilesDT,
-                                                       DataDirection::ReadOnly,
-                                                       argInfo.numTileArgExprs.back()}));
+            argInfo.numTiles.push_back(argInfo.numTileArgExprs.back());
+            //argInfo.numTiles.push_back(k->addArgument({"numTilesAcc",
+            //                                           numTilesDT,
+            //                                           DataDirection::ReadOnly,
+            //                                           argInfo.numTileArgExprs.back()}));
 
             ExpressionPtr numSKTilesArgExpr, numDPTilesArgExpr;
             ExpressionPtr numSKTilesPerWGArgExpr, numDPTilesPerWGArgExpr;
@@ -1584,21 +1587,29 @@ namespace rocRoller
                 }
             }
 
-            argInfo.numSKTiles = k->addArgument(
-                {"numSKTiles", numTilesDT, DataDirection::ReadOnly, numSKTilesArgExpr});
+            argInfo.numSKTiles = numSKTilesArgExpr;
 
-            argInfo.numSKTilesPerWG = k->addArgument(
-                {"numSKTilesPerWG", numTilesDT, DataDirection::ReadOnly, numSKTilesPerWGArgExpr});
+            argInfo.numSKTilesPerWG = numSKTilesPerWGArgExpr;
+
+            //argInfo.numSKTiles = k->addArgument(
+            //    {"numSKTiles", numTilesDT, DataDirection::ReadOnly, numSKTilesArgExpr});
+
+            //argInfo.numSKTilesPerWG = k->addArgument(
+            //    {"numSKTilesPerWG", numTilesDT, DataDirection::ReadOnly, numSKTilesPerWGArgExpr});
 
             if(params->streamK.isTwoTileMode())
             {
-                argInfo.numDPTiles = k->addArgument(
-                    {"numDPTiles", numTilesDT, DataDirection::ReadOnly, numDPTilesArgExpr});
+                argInfo.numDPTiles = numDPTilesArgExpr;
 
-                argInfo.numDPTilesPerWG = k->addArgument({"numDPTilesPerWG",
-                                                          numTilesDT,
-                                                          DataDirection::ReadOnly,
-                                                          numDPTilesPerWGArgExpr});
+                argInfo.numDPTilesPerWG = numDPTilesPerWGArgExpr;
+
+                //argInfo.numDPTiles = k->addArgument(
+                //    {"numDPTiles", numTilesDT, DataDirection::ReadOnly, numDPTilesArgExpr});
+
+                //argInfo.numDPTilesPerWG = k->addArgument({"numDPTilesPerWG",
+                //                                          numTilesDT,
+                //                                          DataDirection::ReadOnly,
+                //                                          numDPTilesPerWGArgExpr});
             }
             else
             {
