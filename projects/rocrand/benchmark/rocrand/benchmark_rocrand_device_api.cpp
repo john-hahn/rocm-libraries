@@ -57,38 +57,31 @@ void init_states_kernel(State* states, unsigned long long seed, unsigned long lo
     }
 }
 
-template<typename State, typename SobolType>
+template<typename State, typename SobolType, bool Scrambled = false>
 __global__
-void init_sobol_kernel(State* states, SobolType* directions, size_t offset, size_t padded_blocks_x)
+void init_sobol_kernel(State*     states,
+                       SobolType* directions,
+                       SobolType* scramble_constants, // can be nullptr if not scrambled
+                       size_t     offset,
+                       size_t     padded_blocks_x)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
     State              state{};
 
     constexpr size_t elements_per_dim = sizeof(SobolType) * 8;
-    rocrand_init(&directions[dimension * elements_per_dim], offset + state_id, &state);
 
-    // Use padded_blocks_x * blockDim.x to match the padded launch size
-    states[dimension * padded_blocks_x * blockDim.x + state_id] = state;
-}
-
-template<typename State, typename SobolType>
-__global__
-void init_scrambled_sobol_kernel(State*     states,
-                                 SobolType* directions,
-                                 SobolType* scramble_constants,
-                                 size_t     offset,
-                                 size_t     padded_blocks_x)
-{
-    const unsigned int dimension = blockIdx.y;
-    const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
-    State              state{};
-
-    constexpr size_t elements_per_dim = sizeof(SobolType) * 8;
-    rocrand_init(&directions[dimension * elements_per_dim],
-                 scramble_constants[dimension],
-                 offset + state_id,
-                 &state);
+    if constexpr(Scrambled)
+    {
+        rocrand_init(&directions[dimension * elements_per_dim],
+                     scramble_constants[dimension],
+                     offset + state_id,
+                     &state);
+    }
+    else
+    {
+        rocrand_init(&directions[dimension * elements_per_dim], offset + state_id, &state);
+    }
 
     // Use padded_blocks_x * blockDim.x to match the padded launch size
     states[dimension * padded_blocks_x * blockDim.x + state_id] = state;
@@ -220,7 +213,7 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
             using dir_type = std::conditional_t<dir_bytes == 32, unsigned int, unsigned long long>;
 
             const dir_type* h_dirs{};
-            const dir_type* h_consts{}; // only used for scrambled
+            const dir_type* h_scramble_consts{};
 
             // Get host vectors
             if constexpr(std::is_same_v<State, rocrand_state_sobol32>)
@@ -238,19 +231,19 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                 ROCRAND_CHECK(rocrand_get_direction_vectors32(
                     &h_dirs,
                     ROCRAND_SCRAMBLED_DIRECTION_VECTORS_32_JOEKUO6));
-                ROCRAND_CHECK(rocrand_get_scramble_constants32(&h_consts));
+                ROCRAND_CHECK(rocrand_get_scramble_constants32(&h_scramble_consts));
             }
             else // scrambled_sobol64
             {
                 ROCRAND_CHECK(rocrand_get_direction_vectors64(
                     &h_dirs,
                     ROCRAND_SCRAMBLED_DIRECTION_VECTORS_64_JOEKUO6));
-                ROCRAND_CHECK(rocrand_get_scramble_constants64(&h_consts));
+                ROCRAND_CHECK(rocrand_get_scramble_constants64(&h_scramble_consts));
             }
 
             // Allocate device memory
             dir_type* d_dirs{};
-            dir_type* d_consts{}; // only used for scrambled
+            dir_type* d_scramble_consts{};
 
             HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * dir_bytes * sizeof(dir_type)));
             HIP_CHECK(hipMemcpy(d_dirs,
@@ -261,9 +254,9 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
             if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
                          || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
             {
-                HIP_CHECK(hipMalloc(&d_consts, m_dimensions * sizeof(dir_type)));
-                HIP_CHECK(hipMemcpy(d_consts,
-                                    h_consts,
+                HIP_CHECK(hipMalloc(&d_scramble_consts, m_dimensions * sizeof(dir_type)));
+                HIP_CHECK(hipMemcpy(d_scramble_consts,
+                                    h_scramble_consts,
                                     m_dimensions * sizeof(dir_type),
                                     hipMemcpyHostToDevice));
             }
@@ -274,22 +267,26 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
             if constexpr(std::is_same_v<State, rocrand_state_sobol32>
                          || std::is_same_v<State, rocrand_state_sobol64>)
             {
-                init_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
-                                    dim3(m_threads),
-                                    0,
-                                    stream>>>(d_states, d_dirs, m_offset, padded_blocks_x);
+                // Plain Sobol
+                init_sobol_kernel<State, dir_type, false>
+                    <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
+                        d_states,
+                        d_dirs,
+                        nullptr,
+                        m_offset,
+                        padded_blocks_x);
             }
             else
             {
-                init_scrambled_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
-                                              dim3(m_threads),
-                                              0,
-                                              stream>>>(d_states,
-                                                        d_dirs,
-                                                        d_consts,
-                                                        m_offset,
-                                                        padded_blocks_x);
-                HIP_CHECK(hipFree(d_consts));
+                // Scrambled Sobol
+                init_sobol_kernel<State, dir_type, true>
+                    <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
+                        d_states,
+                        d_dirs,
+                        d_scramble_consts,
+                        m_offset,
+                        padded_blocks_x);
+                HIP_CHECK(hipFree(d_scramble_consts));
             }
 
             HIP_CHECK(hipFree(d_dirs));
