@@ -194,8 +194,24 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
 
         State* d_states{};
         T*     d_data{};
-        HIP_CHECK(hipMalloc(&d_states, m_blocks * m_threads * sizeof(State)));
+
         HIP_CHECK(hipMalloc(&d_data, items * sizeof(T)));
+
+        if constexpr(std::is_same_v<State, rocrand_state_sobol32>
+                     || std::is_same_v<State, rocrand_state_sobol64>
+                     || std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                     || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
+        {
+            const size_t padded_blocks_x
+                = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
+
+            const size_t total_states = padded_blocks_x * m_threads * m_dimensions;
+            HIP_CHECK(hipMalloc(&d_states, total_states * sizeof(State)));
+        }
+        else
+        {
+            HIP_CHECK(hipMalloc(&d_states, m_blocks * m_threads * sizeof(State)));
+        }
 
         if constexpr(std::is_same_v<State, rocrand_state_mtgp32>)
         {
