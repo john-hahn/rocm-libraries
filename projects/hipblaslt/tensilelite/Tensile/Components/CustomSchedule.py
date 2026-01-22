@@ -2903,8 +2903,10 @@ def _get_schedule_256x256x32_TF32(kernel, useLDSTr, TLDS):
 )
 def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
     kernel["MfmaInitCVgprs"] = True
+    numMfma = 72
     optSchedule = dict()
     syncCode = []
+    snopCode = []
     nglshift = nllshift = 0 # vmcnt shift for ngl and nll
     if isTN(kernel) and useLDSTr and TLDS==1:
 
@@ -2973,11 +2975,66 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
         }
 
         nglshift = nllshift = 10 # vmcnt shift for ngl and nll
+    elif isNT(kernel) and not useLDSTr and TLDS==0:
+        syncTable = [
+            -1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0 for iteration == 0"),
+            
+            17, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0"),
+            
+            35, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment=""),
+            35, SBarrier(comment=""),
+            
+            53, SWaitCnt(dscnt=-1, vlcnt=10, vscnt=-1, comment="wait for previous set of global reads"),
+            53, SBarrier(comment=""),
+        ]
+
+        snopTable = [
+            -1, SNop(0),
+            0, SNop(0),
+            1, SNop(0),
+            2, SNop(0),
+            3, SNop(0),
+            17, SNop(0),
+            18, SNop(0),
+            19, SNop(0),
+            20, SNop(0),
+            21, SNop(0),
+            35, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0"),
+            53, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="wait for prior local read local write old=0, new=0 newLW=0 newLR=0")   
+        ]
+
+        optSchedule = {
+            'SYNC'   : [syncTable[::2]],
+            'LRA0'   : [[0,0,0, 1,1,1, 2,2,2, 3,3,3, 4, 4, 4, 5, 5, 5, 6, 6, 7, 7, 8, 8]],
+            'LRA3'   : [[54, 54, 54, 55, 55, 55, 56, 56, 59, 59, 60, 60, 61, 61, 62, 62, 63, 63, 64, 64, 65, 65, 66, 66]],
+            'GRIncA' : [[0,0,0, 1,1,1, 2,2,2]],
+            'GRIncB' : [[3, 3, 3, 4, 4, 4, 5, 5, 5]],
+            'LRB0'   : [[9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16]],
+            'LRB3'   : [[56, 57, 57, 57, 58, 58, 58, 59, 67, 67, 68, 68, 69, 69, 70, 70]],
+            'LRSA'   : [[16]],
+            'LRSB'   : [[16]],
+            'GRA'    : [[35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35]],
+            'GRB'    : [[35, 35, 35, 35, 35, 35, 35, 35]],
+            'LWSA'   : [[52]],
+            'LWSB'   : [[52]],
+            'LCC'    : [[71, 71]],
+            'PackA3' : [[-1]*4 + [0]*20 + [1]*4 + [2]*20 + [3]*24],
+            'PackB3' : [[-1]*4 + [0]*20 + [1]*4 + [2]*20],
+
+            'PackB0' : [[17]*4 + [18]*20 + [19]*4 + [20]*20],
+            'PackA0' : [[17]*4 + [18]*20 + [19]*4 + [20]*20 + [21]*24],
+
+            'SNOP'   : [snopTable[::2]]
+        }
+        
+        snopCode = snopTable[1::2]
+        syncCode = syncTable[1::2]
+        nglshift = nllshift = len(optSchedule['GRA'][0])//2 + len(optSchedule['GRB'][0])//2
     else:
         return False, None
 
-    numMfma = 72
-    opt1 = ScheduleInfo(2, numMfma, optSchedule, syncCode, nglshift, nllshift)
+    opt1 = ScheduleInfo(2, numMfma, optSchedule, syncCode, nglshift, nllshift, snopCode=snopCode)
+    opt1.disableValidation() 
     return True, opt1
 
 @RegisterSchedule(
