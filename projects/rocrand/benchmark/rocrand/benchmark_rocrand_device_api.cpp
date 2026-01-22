@@ -267,7 +267,8 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                                     hipMemcpyHostToDevice));
             }
 
-            const size_t padded_blocks_x = (m_blocks + m_dimensions - 1) / m_dimensions;
+            const size_t padded_blocks_x
+                = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
 
             if constexpr(std::is_same_v<State, rocrand_state_sobol32>
                          || std::is_same_v<State, rocrand_state_sobol64>)
