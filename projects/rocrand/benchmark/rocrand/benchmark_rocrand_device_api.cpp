@@ -151,15 +151,34 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
 
     void run(primbench::state& state) override
     {
-        const auto& stream = state.stream;
-        const auto& bytes  = state.bytes;
-        const auto& seed   = state.seed;
-
-        const size_t items = bytes / sizeof(T);
+        const hipStream_t stream = state.stream;
+        const size_t      items  = state.bytes / sizeof(T);
+        const auto        seed   = state.seed;
 
         State* d_states{};
         T*     d_data{};
 
+        allocate_states_and_data(items, d_states, d_data);
+        init_states(stream, seed, d_states);
+
+        rocrand_discrete_distribution discrete_dist{};
+        create_discrete_distribution(discrete_dist);
+
+        run_generation(stream, items, d_states, d_data, discrete_dist, state);
+
+        if constexpr(Distribution == DISTRIBUTION_DISCRETE_POISSON
+                     || Distribution == DISTRIBUTION_DISCRETE_CUSTOM)
+        {
+            ROCRAND_CHECK(rocrand_destroy_discrete_distribution(discrete_dist));
+        }
+
+        HIP_CHECK(hipFree(d_states));
+        HIP_CHECK(hipFree(d_data));
+    }
+
+private:
+    void allocate_states_and_data(size_t items, State*& d_states, T*& d_data)
+    {
         HIP_CHECK(hipMalloc(&d_data, items * sizeof(T)));
 
         if constexpr(std::is_same_v<State, rocrand_state_sobol32>
@@ -169,7 +188,6 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
         {
             const size_t padded_blocks_x
                 = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
-
             const size_t total_states = padded_blocks_x * m_threads * m_dimensions;
             HIP_CHECK(hipMalloc(&d_states, total_states * sizeof(State)));
         }
@@ -177,7 +195,10 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
         {
             HIP_CHECK(hipMalloc(&d_states, m_blocks * m_threads * sizeof(State)));
         }
+    }
 
+    void init_states(hipStream_t stream, unsigned long long seed, State* d_states)
+    {
         if constexpr(std::is_same_v<State, rocrand_state_mtgp32>)
         {
             const size_t states_size = std::min((size_t)200, m_blocks);
@@ -189,83 +210,7 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                           || std::is_same_v<State, rocrand_state_scrambled_sobol32>
                           || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
         {
-            // Determine direction vector size
-            constexpr size_t dir_bytes
-                = std::is_same_v<State, rocrand_state_sobol32>
-                          || std::is_same_v<State, rocrand_state_scrambled_sobol32>
-                      ? 32
-                      : 64;
-
-            // Determine type of direction vector
-            using dir_type = std::conditional_t<dir_bytes == 32, unsigned int, unsigned long long>;
-
-            const dir_type* h_dirs{};
-            const dir_type* h_scramble_consts{};
-
-            // Get host vectors
-            if constexpr(std::is_same_v<State, rocrand_state_sobol32>)
-            {
-                ROCRAND_CHECK(
-                    rocrand_get_direction_vectors32(&h_dirs, ROCRAND_DIRECTION_VECTORS_32_JOEKUO6));
-            }
-            else if constexpr(std::is_same_v<State, rocrand_state_sobol64>)
-            {
-                ROCRAND_CHECK(
-                    rocrand_get_direction_vectors64(&h_dirs, ROCRAND_DIRECTION_VECTORS_64_JOEKUO6));
-            }
-            else if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>)
-            {
-                ROCRAND_CHECK(rocrand_get_direction_vectors32(
-                    &h_dirs,
-                    ROCRAND_SCRAMBLED_DIRECTION_VECTORS_32_JOEKUO6));
-                ROCRAND_CHECK(rocrand_get_scramble_constants32(&h_scramble_consts));
-            }
-            else // scrambled_sobol64
-            {
-                ROCRAND_CHECK(rocrand_get_direction_vectors64(
-                    &h_dirs,
-                    ROCRAND_SCRAMBLED_DIRECTION_VECTORS_64_JOEKUO6));
-                ROCRAND_CHECK(rocrand_get_scramble_constants64(&h_scramble_consts));
-            }
-
-            // Allocate device memory
-            dir_type* d_dirs{};
-            dir_type* d_scramble_consts{};
-
-            HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * dir_bytes * sizeof(dir_type)));
-            HIP_CHECK(hipMemcpy(d_dirs,
-                                h_dirs,
-                                m_dimensions * dir_bytes * sizeof(dir_type),
-                                hipMemcpyHostToDevice));
-
-            if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
-                         || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
-            {
-                HIP_CHECK(hipMalloc(&d_scramble_consts, m_dimensions * sizeof(dir_type)));
-                HIP_CHECK(hipMemcpy(d_scramble_consts,
-                                    h_scramble_consts,
-                                    m_dimensions * sizeof(dir_type),
-                                    hipMemcpyHostToDevice));
-            }
-
-            const size_t padded_blocks_x
-                = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
-
-            init_sobol_kernel<State, dir_type>
-                <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(
-                    d_states,
-                    d_dirs,
-                    d_scramble_consts,
-                    m_offset,
-                    padded_blocks_x);
-
-            if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
-                         || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
-            {
-                HIP_CHECK(hipFree(d_scramble_consts));
-            }
-
-            HIP_CHECK(hipFree(d_dirs));
+            init_sobol_states(stream, d_states);
         }
         else if constexpr(std::is_same_v<State, rocrand_state_lfsr113>)
         {
@@ -280,51 +225,129 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
         {
             init_states_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states, seed, m_offset);
         }
+    }
 
-        rocrand_discrete_distribution discrete_dist{};
+    void init_sobol_states(hipStream_t stream, State* d_states)
+    {
+        constexpr size_t dir_bytes
+            = std::is_same_v<State, rocrand_state_sobol32>
+                      || std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                  ? 32
+                  : 64;
+
+        using dir_type = std::conditional_t<dir_bytes == 32, unsigned int, unsigned long long>;
+
+        const dir_type* h_dirs{};
+        const dir_type* h_scramble_consts{};
+
+        if constexpr(std::is_same_v<State, rocrand_state_sobol32>)
+            ROCRAND_CHECK(
+                rocrand_get_direction_vectors32(&h_dirs, ROCRAND_DIRECTION_VECTORS_32_JOEKUO6));
+        else if constexpr(std::is_same_v<State, rocrand_state_sobol64>)
+            ROCRAND_CHECK(
+                rocrand_get_direction_vectors64(&h_dirs, ROCRAND_DIRECTION_VECTORS_64_JOEKUO6));
+        else if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>)
+        {
+            ROCRAND_CHECK(
+                rocrand_get_direction_vectors32(&h_dirs,
+                                                ROCRAND_SCRAMBLED_DIRECTION_VECTORS_32_JOEKUO6));
+            ROCRAND_CHECK(rocrand_get_scramble_constants32(&h_scramble_consts));
+        }
+        else
+        {
+            ROCRAND_CHECK(
+                rocrand_get_direction_vectors64(&h_dirs,
+                                                ROCRAND_SCRAMBLED_DIRECTION_VECTORS_64_JOEKUO6));
+            ROCRAND_CHECK(rocrand_get_scramble_constants64(&h_scramble_consts));
+        }
+
+        dir_type* d_dirs{};
+        dir_type* d_scramble_consts{};
+
+        HIP_CHECK(hipMalloc(&d_dirs, m_dimensions * dir_bytes * sizeof(dir_type)));
+        HIP_CHECK(hipMemcpy(d_dirs,
+                            h_dirs,
+                            m_dimensions * dir_bytes * sizeof(dir_type),
+                            hipMemcpyHostToDevice));
+
+        if constexpr(std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                     || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
+        {
+            HIP_CHECK(hipMalloc(&d_scramble_consts, m_dimensions * sizeof(dir_type)));
+            HIP_CHECK(hipMemcpy(d_scramble_consts,
+                                h_scramble_consts,
+                                m_dimensions * sizeof(dir_type),
+                                hipMemcpyHostToDevice));
+        }
+
+        const size_t padded_blocks_x = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
+
+        init_sobol_kernel<State, dir_type>
+            <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(d_states,
+                                                                                  d_dirs,
+                                                                                  d_scramble_consts,
+                                                                                  m_offset,
+                                                                                  padded_blocks_x);
+
+        if(d_scramble_consts)
+            HIP_CHECK(hipFree(d_scramble_consts));
+        HIP_CHECK(hipFree(d_dirs));
+    }
+
+    void create_discrete_distribution(rocrand_discrete_distribution& dist)
+    {
         if constexpr(Distribution == DISTRIBUTION_DISCRETE_POISSON)
-            ROCRAND_CHECK(rocrand_create_poisson_distribution(*m_poisson_lambda, &discrete_dist));
+        {
+            ROCRAND_CHECK(rocrand_create_poisson_distribution(*m_poisson_lambda, &dist));
+        }
         else if constexpr(Distribution == DISTRIBUTION_DISCRETE_CUSTOM)
         {
             std::vector<double> probs{10, 10, 1, 120, 8, 6, 140, 2, 150, 150, 10, 80};
             double              sum = std::accumulate(probs.begin(), probs.end(), 0.0);
             for(auto& p : probs)
                 p /= sum;
-            ROCRAND_CHECK(rocrand_create_discrete_distribution(probs.data(),
-                                                               probs.size(),
-                                                               m_offset,
-                                                               &discrete_dist));
-        }
 
+            ROCRAND_CHECK(
+                rocrand_create_discrete_distribution(probs.data(), probs.size(), m_offset, &dist));
+        }
+    }
+
+    void run_generation(hipStream_t                   stream,
+                        size_t                        items,
+                        State*                        d_states,
+                        T*                            d_data,
+                        rocrand_discrete_distribution dist,
+                        primbench::state&             state)
+    {
         const double poisson_lambda
             = (Distribution == DISTRIBUTION_POISSON) ? *m_poisson_lambda : 0.0;
 
-        auto gen = [=](auto* state) -> T
+        auto gen = [=](auto* s) -> T
         {
             if constexpr(Distribution == DISTRIBUTION_DEFAULT && std::is_same_v<T, unsigned int>)
-                return rocrand(state);
+                return rocrand(s);
             else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, float>)
-                return rocrand_uniform(state);
+                return rocrand_uniform(s);
             else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, double>)
-                return rocrand_uniform_double(state);
+                return rocrand_uniform_double(s);
             else if constexpr(Distribution == DISTRIBUTION_NORMAL && std::is_same_v<T, float>)
-                return rocrand_normal(state);
+                return rocrand_normal(s);
             else if constexpr(Distribution == DISTRIBUTION_NORMAL && std::is_same_v<T, double>)
-                return rocrand_normal_double(state);
+                return rocrand_normal_double(s);
             else if constexpr(Distribution == DISTRIBUTION_LOG_NORMAL && std::is_same_v<T, float>)
-                return rocrand_log_normal(state, 0.0f, 1.0f);
+                return rocrand_log_normal(s, 0.0f, 1.0f);
             else if constexpr(Distribution == DISTRIBUTION_LOG_NORMAL && std::is_same_v<T, double>)
-                return rocrand_log_normal_double(state, 0.0, 1.0);
+                return rocrand_log_normal_double(s, 0.0, 1.0);
             else if constexpr(Distribution == DISTRIBUTION_POISSON)
-                return rocrand_poisson(state, poisson_lambda);
+                return rocrand_poisson(s, poisson_lambda);
             else if constexpr(Distribution == DISTRIBUTION_DISCRETE_POISSON
                               || Distribution == DISTRIBUTION_DISCRETE_CUSTOM)
-                return rocrand_discrete(state, discrete_dist);
+                return rocrand_discrete(s, dist);
             else
                 static_assert(sizeof(T) == 0, "Unsupported distribution/type combination");
         };
-        static_assert(std::is_trivially_copyable<decltype(gen)>::value,
-                      "Generator lambda must be trivially copyable to be passed to device kernel.");
+
+        static_assert(std::is_trivially_copyable_v<decltype(gen)>);
 
         state.set_items(items);
         state.add_writes<T>(items);
@@ -332,13 +355,6 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
         state.run(
             [&]
             { generate_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states, d_data, items, gen); });
-
-        if constexpr(Distribution == DISTRIBUTION_DISCRETE_POISSON
-                     || Distribution == DISTRIBUTION_DISCRETE_CUSTOM)
-            ROCRAND_CHECK(rocrand_destroy_discrete_distribution(discrete_dist));
-
-        HIP_CHECK(hipFree(d_states));
-        HIP_CHECK(hipFree(d_data));
     }
 
 private:
