@@ -37,39 +37,24 @@
 #include <vector>
 
 template<typename State>
-__device__
-inline void rocrand_init_helper(unsigned long long seed,
-                                unsigned long long subsequence,
-                                unsigned long long offset,
-                                State*             state)
-{
-    rocrand_init(seed, subsequence, offset, state);
-}
-
-template<>
-__device__
-inline void rocrand_init_helper<rocrand_state_lfsr113>(unsigned long long /*seed*/,
-                                                       unsigned long long thread_id,
-                                                       unsigned long long /*offset*/,
-                                                       rocrand_state_lfsr113* state)
-{
-    // LFSR113 ignores offset, only uses seed and unique thread_id
-    rocrand_init(uint4{ROCRAND_LFSR113_DEFAULT_SEED_X,
-                       ROCRAND_LFSR113_DEFAULT_SEED_Y,
-                       ROCRAND_LFSR113_DEFAULT_SEED_Z,
-                       ROCRAND_LFSR113_DEFAULT_SEED_W},
-                 thread_id,
-                 state);
-}
-
-template<typename State>
 __global__
 void init_states_kernel(State* states, unsigned long long seed, unsigned long long offset)
 {
     const unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
-    // For LFSR113, offset is ignored. tid is used as subsequence to guarantee unique state per thread.
-    rocrand_init_helper<State>(seed, tid, offset, &states[tid]);
+    if constexpr(std::is_same_v<State, rocrand_state_lfsr113>)
+    {
+        rocrand_init(uint4{ROCRAND_LFSR113_DEFAULT_SEED_X,
+                           ROCRAND_LFSR113_DEFAULT_SEED_Y,
+                           ROCRAND_LFSR113_DEFAULT_SEED_Z,
+                           ROCRAND_LFSR113_DEFAULT_SEED_W},
+                     tid,
+                     &states[tid]);
+    }
+    else
+    {
+        rocrand_init(seed, tid, offset, &states[tid]);
+    }
 }
 
 template<typename State, typename SobolType>
