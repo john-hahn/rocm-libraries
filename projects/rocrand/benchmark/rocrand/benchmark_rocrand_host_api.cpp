@@ -87,10 +87,7 @@ struct rocrand_host_api_benchmark : public primbench::benchmark_interface
                         .add("type", primbench::name<T>())
                         .add("engine", engine_name(m_engine))
                         .add("ordering", ordering_name(m_ordering))
-                        .add("distribution", distribution_name(Distribution))
-                        .add("dimensions", m_dimensions)
-                        .add("offset", m_offset)
-                        .add("benchmark_host", m_benchmark_host);
+                        .add("distribution", distribution_name(Distribution));
 
         if constexpr(Distribution == DISTRIBUTION_POISSON)
         {
