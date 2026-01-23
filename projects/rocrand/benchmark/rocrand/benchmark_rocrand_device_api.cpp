@@ -241,9 +241,7 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                         .add("type", primbench::name<T>())
                         .add("distribution", distribution_name(Distribution))
                         .add("blocks", m_blocks)
-                        .add("threads", m_threads)
-                        .add("dimensions", m_dimensions)
-                        .add("offset", m_offset);
+                        .add("threads", m_threads);
 
         if constexpr(Distribution == DISTRIBUTION_POISSON
                      || Distribution == DISTRIBUTION_DISCRETE_POISSON)
