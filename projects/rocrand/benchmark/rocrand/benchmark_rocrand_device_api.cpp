@@ -50,8 +50,17 @@
     #define ROCRAND_THREEFRY2X32_20_MAX_BLOCK_SIZE 1024
 #endif
 
+template<typename EngineState>
+constexpr int max_block_size()
+{
+    if constexpr(std::is_same_v<EngineState, rocrand_state_threefry2x32_20>)
+        return ROCRAND_THREEFRY2X32_20_MAX_BLOCK_SIZE;
+    else
+        return ROCRAND_DEFAULT_MAX_BLOCK_SIZE;
+}
+
 template<typename State, typename Seed>
-__global__
+__global__ __launch_bounds__(max_block_size<State>())
 void init_states_kernel(State* states, Seed seed, unsigned long long offset)
 {
     // Only valid for non-Sobol, non-MTGP32 generators.
@@ -93,15 +102,6 @@ void init_sobol_kernel(State*     states,
     }
 
     states[gridDim.x * blockDim.x * dimension + state_id] = state;
-}
-
-template<typename EngineState>
-constexpr int max_block_size()
-{
-    if constexpr(std::is_same_v<EngineState, rocrand_state_threefry2x32_20>)
-        return ROCRAND_THREEFRY2X32_20_MAX_BLOCK_SIZE;
-    else
-        return ROCRAND_DEFAULT_MAX_BLOCK_SIZE;
 }
 
 template<typename EngineState, typename T, typename Generator>
