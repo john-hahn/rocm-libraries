@@ -59,7 +59,7 @@ constexpr const char* ordering_name(rocrand_ordering order)
         case ROCRAND_ORDERING_PSEUDO_BEST: return "best";
         case ROCRAND_ORDERING_PSEUDO_DYNAMIC: return "dynamic";
         case ROCRAND_ORDERING_PSEUDO_SEEDED: return "seeded";
-        case ROCRAND_ORDERING_QUASI_DEFAULT: return "default";
+        case ROCRAND_ORDERING_QUASI_DEFAULT: return "quasi_default";
     }
 }
 
