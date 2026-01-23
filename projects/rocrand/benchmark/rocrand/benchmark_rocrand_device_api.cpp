@@ -40,6 +40,14 @@ template<typename State, typename Seed>
 __global__
 void init_states_kernel(State* states, Seed seed, unsigned long long offset)
 {
+    // Only valid for non-Sobol, non-MTGP32 generators.
+    static_assert(!(std::is_same_v<State, rocrand_state_mtgp32>
+                    || std::is_same_v<State, rocrand_state_sobol32>
+                    || std::is_same_v<State, rocrand_state_sobol64>
+                    || std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                    || std::is_same_v<State, rocrand_state_scrambled_sobol64>),
+                  "init_states_kernel cannot be used with MTGP32 or Sobol generators");
+
     const unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
     rocrand_init(seed, tid, offset, &states[tid]);
 }
