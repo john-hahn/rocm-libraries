@@ -18,7 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#include "benchmark_rocrand_occupancy_helper.hpp"
 #include "benchmark_rocrand_utils.hpp"
 
 #include <hip/hip_runtime.h>
