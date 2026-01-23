@@ -73,47 +73,66 @@ void init_sobol_kernel(State*     states,
     states[dimension * gridDim.x * blockDim.x + state_id] = state;
 }
 
+template<typename EngineState>
+constexpr int max_block_size()
+{
+    // Specifically for rocrand_state_threefry2x32_20.
+    // Threefry has very low register usage, so 1024 threads
+    // helps hide memory latency better.
+    if constexpr(std::is_same_v<EngineState, rocrand_state_threefry2x32_20>)
+        return 1024;
+    // Dublicate from rocrand.h. Default maximum thread count for most generators.
+    // Higher values (like 1024) typically cause register pressure and slowdowns
+    // in state-heavy generators like Sobol.
+    else
+        return 256;
+}
+
+template<typename EngineState, typename T, typename Generator>
+__global__ __launch_bounds__(max_block_size<EngineState>())
+void generate_kernel(EngineState* states, T* data, size_t size, Generator generator)
+{
+    const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
+    const unsigned int stride   = gridDim.x * blockDim.x;
+
+    EngineState  state = states[state_id];
+    unsigned int index = state_id;
+
+    while(index < size)
+    {
+        data[index] = generator(&state);
+        index += stride;
+    }
+
+    states[state_id] = state;
+}
+
 template<typename State, typename T, typename Generator>
 __global__
-void generate_kernel(State* states, T* data, size_t size, Generator generator)
+void generate_sobol_kernel(State* states, T* data, size_t size, Generator generator)
 {
     const unsigned int tid    = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int stride = gridDim.x * blockDim.x;
 
-    if constexpr(std::is_same_v<State, rocrand_state_sobol32>
-                 || std::is_same_v<State, rocrand_state_sobol64>
-                 || std::is_same_v<State, rocrand_state_scrambled_sobol32>
-                 || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
+    const unsigned int dimension = blockIdx.y;
+    const unsigned int state_id  = tid;
+    const size_t       offset    = dimension * size;
+
+    const size_t state_base = gridDim.x * blockDim.x * dimension + state_id;
+
+    State state = states[state_base];
+
+    size_t index = state_id;
+    while(index < size)
     {
-        const unsigned int dimension = blockIdx.y;
-        const unsigned int state_id  = tid;
-        const size_t       offset    = dimension * size;
-
-        const size_t state_base = gridDim.x * blockDim.x * dimension + state_id;
-
-        State state = states[state_base];
-
-        size_t index = state_id;
-        while(index < size)
-        {
-            data[offset + index] = generator(&state);
-            skipahead(stride - 1, &state);
-            index += stride;
-        }
-
-        State final_state = states[state_base];
-        skipahead(size, &final_state);
-        states[state_base] = final_state;
+        data[offset + index] = generator(&state);
+        skipahead(stride - 1, &state);
+        index += stride;
     }
-    else
-    {
-        State state = states[tid];
 
-        for(size_t i = tid; i < size; i += stride)
-            data[i] = generator(&state);
-
-        states[tid] = state;
-    }
+    State final_state = states[state_base];
+    skipahead(size, &final_state);
+    states[state_base] = final_state;
 }
 
 enum distribution
@@ -394,33 +413,30 @@ private:
         state.set_items(items);
         state.add_writes<T>(items);
 
-        if constexpr(std::is_same_v<State, rocrand_state_sobol32>
-                     || std::is_same_v<State, rocrand_state_sobol64>
-                     || std::is_same_v<State, rocrand_state_scrambled_sobol32>
-                     || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
-        {
-            const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
-            const size_t padded_blocks_x = next_power2(states_per_dim);
-
-            state.run(
-                [&]
+        state.run(
+            [&]
+            {
+                if constexpr(std::is_same_v<State, rocrand_state_sobol32>
+                             || std::is_same_v<State, rocrand_state_sobol64>
+                             || std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                             || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
                 {
-                    generate_kernel<<<dim3(padded_blocks_x, m_dimensions),
-                                      dim3(m_threads),
-                                      0,
-                                      stream>>>(d_states, d_data, items, gen);
-                });
-        }
-        else
-        {
-            state.run(
-                [&] {
+                    const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
+                    const size_t padded_blocks_x = next_power2(states_per_dim);
+
+                    generate_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
+                                            dim3(m_threads),
+                                            0,
+                                            stream>>>(d_states, d_data, items, gen);
+                }
+                else
+                {
                     generate_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states,
                                                                         d_data,
                                                                         items,
                                                                         gen);
-                });
-        }
+                }
+            });
     }
 
 private:
