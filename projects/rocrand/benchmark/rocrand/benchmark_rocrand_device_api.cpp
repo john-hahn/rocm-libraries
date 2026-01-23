@@ -176,7 +176,6 @@ void generator_sobol_kernel(State* states, T* data, size_t size, Generator gener
 
 enum distribution
 {
-    DISTRIBUTION_DEFAULT,
     DISTRIBUTION_UNIFORM,
     DISTRIBUTION_NORMAL,
     DISTRIBUTION_LOG_NORMAL,
@@ -189,7 +188,6 @@ constexpr const char* distribution_name(distribution d)
 {
     switch(d)
     {
-        case DISTRIBUTION_DEFAULT: return "default";
         case DISTRIBUTION_UNIFORM: return "uniform";
         case DISTRIBUTION_NORMAL: return "normal";
         case DISTRIBUTION_LOG_NORMAL: return "log_normal";
@@ -430,7 +428,7 @@ private:
 
         auto gen = [=](auto* s) -> T
         {
-            if constexpr(Distribution == DISTRIBUTION_DEFAULT
+            if constexpr(Distribution == DISTRIBUTION_UNIFORM
                          && (std::is_same_v<T, uint32_t> || std::is_same_v<T, unsigned long long>))
                 return rocrand(s);
             else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, float>)
@@ -519,11 +517,11 @@ private:
                      || std::is_same_v<State, rocrand_state_threefry2x64_20>       \
                      || std::is_same_v<State, rocrand_state_threefry4x64_20>)      \
         {                                                                          \
-            QUEUE(unsigned long long, State, engine, DISTRIBUTION_DEFAULT);        \
+            QUEUE(unsigned long long, State, engine, DISTRIBUTION_UNIFORM);        \
         }                                                                          \
         else                                                                       \
         {                                                                          \
-            QUEUE(uint32_t, State, engine, DISTRIBUTION_DEFAULT);                  \
+            QUEUE(uint32_t, State, engine, DISTRIBUTION_UNIFORM);                  \
         }                                                                          \
                                                                                    \
         QUEUE(float, State, engine, DISTRIBUTION_UNIFORM);                         \
