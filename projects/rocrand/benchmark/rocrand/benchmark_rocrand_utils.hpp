@@ -82,6 +82,7 @@ inline std::string engine_name(const rocrand_rng_type rng_type)
 }
 
 PRIMBENCH_REGISTER_TYPE(unsigned int, "uint")
+PRIMBENCH_REGISTER_TYPE(unsigned long long int, "ullong")
 PRIMBENCH_REGISTER_TYPE(unsigned char, "uchar")
 PRIMBENCH_REGISTER_TYPE(unsigned short, "ushort")
 PRIMBENCH_REGISTER_TYPE(__half, "half")

@@ -429,7 +429,9 @@ private:
 
         auto gen = [=](auto* s) -> T
         {
-            if constexpr(Distribution == DISTRIBUTION_DEFAULT && std::is_same_v<T, unsigned int>)
+            if constexpr(Distribution == DISTRIBUTION_DEFAULT
+                         && (std::is_same_v<T, unsigned int>
+                             || std::is_same_v<T, unsigned long long int>))
                 return rocrand(s);
             else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, float>)
                 return rocrand_uniform(s);
@@ -512,18 +514,31 @@ private:
 #define QUEUE_DISTRIBUTIONS(State, engine)                                             \
     do                                                                                 \
     {                                                                                  \
-        QUEUE(unsigned int, State, engine, DISTRIBUTION_DEFAULT);                      \
+        if constexpr(std::is_same_v<State, rocrand_state_sobol64>                      \
+                     || std::is_same_v<State, rocrand_state_scrambled_sobol64>         \
+                     || std::is_same_v<State, rocrand_state_threefry2x64_20>           \
+                     || std::is_same_v<State, rocrand_state_threefry4x64_20>)          \
+        {                                                                              \
+            QUEUE(unsigned long long int, State, engine, DISTRIBUTION_DEFAULT);        \
+        }                                                                              \
+        else                                                                           \
+        {                                                                              \
+            QUEUE(unsigned int, State, engine, DISTRIBUTION_DEFAULT);                  \
+        }                                                                              \
+                                                                                       \
         QUEUE(float, State, engine, DISTRIBUTION_UNIFORM);                             \
         QUEUE(double, State, engine, DISTRIBUTION_UNIFORM);                            \
         QUEUE(float, State, engine, DISTRIBUTION_NORMAL);                              \
         QUEUE(double, State, engine, DISTRIBUTION_NORMAL);                             \
         QUEUE(float, State, engine, DISTRIBUTION_LOG_NORMAL);                          \
         QUEUE(double, State, engine, DISTRIBUTION_LOG_NORMAL);                         \
+                                                                                       \
         for(double lambda : poisson_lambdas)                                           \
         {                                                                              \
             QUEUE(unsigned int, State, engine, DISTRIBUTION_POISSON, lambda);          \
             QUEUE(unsigned int, State, engine, DISTRIBUTION_DISCRETE_POISSON, lambda); \
         }                                                                              \
+                                                                                       \
         QUEUE(unsigned int, State, engine, DISTRIBUTION_DISCRETE_CUSTOM);              \
     }                                                                                  \
     while(0)
