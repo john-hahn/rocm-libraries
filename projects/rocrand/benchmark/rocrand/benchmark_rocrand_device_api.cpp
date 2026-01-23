@@ -237,9 +237,7 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
                         .add("algo", "rocrand_device_api")
                         .add("engine", engine_name(m_engine))
                         .add("type", primbench::name<T>())
-                        .add("distribution", distribution_name(Distribution))
-                        .add("blocks", m_blocks)
-                        .add("threads", m_threads);
+                        .add("distribution", distribution_name(Distribution));
 
         if constexpr(Distribution == DISTRIBUTION_POISSON
                      || Distribution == DISTRIBUTION_DISCRETE_POISSON)
