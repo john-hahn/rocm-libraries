@@ -68,10 +68,10 @@ void init_states_kernel(State* states, Seed seed, unsigned long long offset)
 
 template<typename State, typename SobolType>
 __global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void init_sobol_kernel(State*     states,
-                       SobolType* directions,
-                       SobolType* scramble_constants,
-                       size_t     offset)
+void init_sobol_states_kernel(State*     states,
+                              SobolType* directions,
+                              SobolType* scramble_constants,
+                              size_t     offset)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -97,7 +97,7 @@ void init_sobol_kernel(State*     states,
 
 template<typename EngineState, typename T, typename Generator>
 __global__ __launch_bounds__(max_block_size<EngineState>())
-void generate_kernel(EngineState* states, T* data, size_t size, Generator generator)
+void generator_kernel(EngineState* states, T* data, size_t size, Generator generator)
 {
     const unsigned int state_id = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int stride   = gridDim.x * blockDim.x;
@@ -116,7 +116,10 @@ void generate_kernel(EngineState* states, T* data, size_t size, Generator genera
 
 template<typename T, typename Generator>
 __global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void generate_mtgp32_kernel(rocrand_state_mtgp32* states, T* data, size_t size, Generator generator)
+void generator_mtgp32_kernel(rocrand_state_mtgp32* states,
+                             T*                    data,
+                             size_t                size,
+                             Generator             generator)
 {
     const unsigned int   state_id = blockIdx.x;
     unsigned int         index    = blockIdx.x * blockDim.x + threadIdx.x;
@@ -147,7 +150,7 @@ void generate_mtgp32_kernel(rocrand_state_mtgp32* states, T* data, size_t size, 
 
 template<typename State, typename T, typename Generator>
 __global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
-void generate_sobol_kernel(State* states, T* data, size_t size, Generator generator)
+void generator_sobol_kernel(State* states, T* data, size_t size, Generator generator)
 {
     const unsigned int tid    = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int stride = gridDim.x * blockDim.x;
@@ -388,7 +391,7 @@ private:
         const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
         const size_t padded_blocks_x = next_power2(states_per_dim);
 
-        init_sobol_kernel<State, dir_type>
+        init_sobol_states_kernel<State, dir_type>
             <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(d_states,
                                                                                   d_dirs,
                                                                                   d_scramble_consts,
@@ -469,14 +472,14 @@ private:
                     const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
                     const size_t padded_blocks_x = next_power2(states_per_dim);
 
-                    generate_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
-                                            dim3(m_threads),
-                                            0,
-                                            stream>>>(d_states, d_data, items, gen);
+                    generator_sobol_kernel<<<dim3(padded_blocks_x, m_dimensions),
+                                             dim3(m_threads),
+                                             0,
+                                             stream>>>(d_states, d_data, items, gen);
                 }
                 else if constexpr(std::is_same_v<State, rocrand_state_mtgp32>)
                 {
-                    generate_mtgp32_kernel<<<dim3(m_mtgp32_states), dim3(256), 0, stream>>>(
+                    generator_mtgp32_kernel<<<dim3(m_mtgp32_states), dim3(256), 0, stream>>>(
                         d_states,
                         d_data,
                         items,
@@ -484,10 +487,10 @@ private:
                 }
                 else
                 {
-                    generate_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states,
-                                                                        d_data,
-                                                                        items,
-                                                                        gen);
+                    generator_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states,
+                                                                         d_data,
+                                                                         items,
+                                                                         gen);
                 }
             });
     }
