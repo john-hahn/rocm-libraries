@@ -80,10 +80,40 @@ void generate_kernel(State* states, T* data, size_t size, Generator generator)
     const unsigned int tid    = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int stride = gridDim.x * blockDim.x;
 
-    State state = states[tid];
-    for(size_t i = tid; i < size; i += stride)
-        data[i] = generator(&state);
-    states[tid] = state;
+    if constexpr(std::is_same_v<State, rocrand_state_sobol32>
+                 || std::is_same_v<State, rocrand_state_sobol64>
+                 || std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                 || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
+    {
+        const unsigned int dimension = blockIdx.y;
+        const unsigned int state_id  = tid;
+        const size_t       offset    = dimension * size;
+
+        const size_t state_base = gridDim.x * blockDim.x * dimension + state_id;
+
+        State state = states[state_base];
+
+        size_t index = state_id;
+        while(index < size)
+        {
+            data[offset + index] = generator(&state);
+            skipahead(stride - 1, &state);
+            index += stride;
+        }
+
+        State final_state = states[state_base];
+        skipahead(size, &final_state);
+        states[state_base] = final_state;
+    }
+    else
+    {
+        State state = states[tid];
+
+        for(size_t i = tid; i < size; i += stride)
+            data[i] = generator(&state);
+
+        states[tid] = state;
+    }
 }
 
 enum distribution
@@ -364,9 +394,33 @@ private:
         state.set_items(items);
         state.add_writes<T>(items);
 
-        state.run(
-            [&]
-            { generate_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states, d_data, items, gen); });
+        if constexpr(std::is_same_v<State, rocrand_state_sobol32>
+                     || std::is_same_v<State, rocrand_state_sobol64>
+                     || std::is_same_v<State, rocrand_state_scrambled_sobol32>
+                     || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
+        {
+            const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
+            const size_t padded_blocks_x = next_power2(states_per_dim);
+
+            state.run(
+                [&]
+                {
+                    generate_kernel<<<dim3(padded_blocks_x, m_dimensions),
+                                      dim3(m_threads),
+                                      0,
+                                      stream>>>(d_states, d_data, items, gen);
+                });
+        }
+        else
+        {
+            state.run(
+                [&] {
+                    generate_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states,
+                                                                        d_data,
+                                                                        items,
+                                                                        gen);
+                });
+        }
     }
 
 private:
