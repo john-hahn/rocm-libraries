@@ -49,8 +49,7 @@ __global__
 void init_sobol_kernel(State*     states,
                        SobolType* directions,
                        SobolType* scramble_constants,
-                       size_t     offset,
-                       size_t     padded_blocks_x)
+                       size_t     offset)
 {
     const unsigned int dimension = blockIdx.y;
     const unsigned int state_id  = blockIdx.x * blockDim.x + threadIdx.x;
@@ -71,7 +70,7 @@ void init_sobol_kernel(State*     states,
         rocrand_init(&directions[dimension * elements_per_dim], offset + state_id, &state);
     }
 
-    states[dimension * padded_blocks_x * blockDim.x + state_id] = state;
+    states[dimension * gridDim.x * blockDim.x + state_id] = state;
 }
 
 template<typename State, typename T, typename Generator>
@@ -111,6 +110,19 @@ constexpr const char* distribution_name(distribution d)
         case DISTRIBUTION_DISCRETE_CUSTOM: return "discrete_custom";
     }
     return "unknown";
+}
+
+constexpr size_t div_ceil(size_t numerator, size_t denominator)
+{
+    return (numerator + denominator - 1) / denominator;
+}
+
+constexpr size_t next_power2(size_t x)
+{
+    size_t power = 1;
+    while(power < x)
+        power *= 2;
+    return power;
 }
 
 template<typename State, typename T, distribution Distribution>
@@ -186,9 +198,9 @@ private:
                      || std::is_same_v<State, rocrand_state_scrambled_sobol32>
                      || std::is_same_v<State, rocrand_state_scrambled_sobol64>)
         {
-            const size_t padded_blocks_x
-                = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
-            const size_t total_states = padded_blocks_x * m_threads * m_dimensions;
+            const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
+            const size_t padded_blocks_x = next_power2(states_per_dim);
+            const size_t total_states    = padded_blocks_x * m_threads * m_dimensions;
             HIP_CHECK(hipMalloc(&d_states, total_states * sizeof(State)));
         }
         else
@@ -280,14 +292,14 @@ private:
                                 hipMemcpyHostToDevice));
         }
 
-        const size_t padded_blocks_x = next_power2((m_blocks + m_dimensions - 1) / m_dimensions);
+        const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
+        const size_t padded_blocks_x = next_power2(states_per_dim);
 
         init_sobol_kernel<State, dir_type>
             <<<dim3(padded_blocks_x, m_dimensions), dim3(m_threads), 0, stream>>>(d_states,
                                                                                   d_dirs,
                                                                                   d_scramble_consts,
-                                                                                  m_offset,
-                                                                                  padded_blocks_x);
+                                                                                  m_offset);
 
         if(d_scramble_consts)
             HIP_CHECK(hipFree(d_scramble_consts));

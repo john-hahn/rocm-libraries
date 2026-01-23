@@ -81,16 +81,6 @@ inline std::string engine_name(const rocrand_rng_type rng_type)
     // clang-format on
 }
 
-inline size_t next_power2(size_t x)
-{
-    size_t power = 1;
-    while(power < x)
-    {
-        power *= 2;
-    }
-    return power;
-}
-
 PRIMBENCH_REGISTER_TYPE(unsigned int, "uint")
 PRIMBENCH_REGISTER_TYPE(unsigned char, "uchar")
 PRIMBENCH_REGISTER_TYPE(unsigned short, "ushort")
