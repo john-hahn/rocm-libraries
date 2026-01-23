@@ -63,20 +63,12 @@ template<typename State, typename Seed>
 __global__ __launch_bounds__(max_block_size<State>())
 void init_states_kernel(State* states, Seed seed, unsigned long long offset)
 {
-    // Only valid for non-Sobol, non-MTGP32 generators.
-    static_assert(!(std::is_same_v<State, rocrand_state_mtgp32>
-                    || std::is_same_v<State, rocrand_state_sobol32>
-                    || std::is_same_v<State, rocrand_state_sobol64>
-                    || std::is_same_v<State, rocrand_state_scrambled_sobol32>
-                    || std::is_same_v<State, rocrand_state_scrambled_sobol64>),
-                  "init_states_kernel cannot be used with MTGP32 or Sobol generators");
-
     const unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
     rocrand_init(seed, tid, offset, &states[tid]);
 }
 
 template<typename State, typename SobolType>
-__global__
+__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
 void init_sobol_kernel(State*     states,
                        SobolType* directions,
                        SobolType* scramble_constants,
@@ -155,7 +147,7 @@ void generate_mtgp32_kernel(rocrand_state_mtgp32* states, T* data, size_t size, 
 }
 
 template<typename State, typename T, typename Generator>
-__global__
+__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
 void generate_sobol_kernel(State* states, T* data, size_t size, Generator generator)
 {
     const unsigned int tid    = blockIdx.x * blockDim.x + threadIdx.x;
@@ -169,12 +161,10 @@ void generate_sobol_kernel(State* states, T* data, size_t size, Generator genera
 
     State state = states[state_base];
 
-    size_t index = state_id;
-    while(index < size)
+    for(unsigned int index = state_id; index < size; index += stride)
     {
         data[offset + index] = generator(&state);
         skipahead(stride - 1, &state);
-        index += stride;
     }
 
     State final_state = states[state_base];
