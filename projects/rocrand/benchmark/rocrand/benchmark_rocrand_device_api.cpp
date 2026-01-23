@@ -36,6 +36,20 @@
 #include <type_traits>
 #include <vector>
 
+// Copied from rocrand.h. Default maximum thread count for most generators.
+// Higher values (like 1024) typically cause register pressure and slowdowns
+// in state-heavy generators like Sobol.
+#ifndef ROCRAND_DEFAULT_MAX_BLOCK_SIZE
+    #define ROCRAND_DEFAULT_MAX_BLOCK_SIZE 256
+#endif
+
+// Specifically for rocrand_state_threefry2x32_20.
+// Threefry has very low register usage, so 1024 threads
+// helps hide memory latency better.
+#ifndef ROCRAND_THREEFRY2X32_20_MAX_BLOCK_SIZE
+    #define ROCRAND_THREEFRY2X32_20_MAX_BLOCK_SIZE 1024
+#endif
+
 template<typename State, typename Seed>
 __global__
 void init_states_kernel(State* states, Seed seed, unsigned long long offset)
@@ -84,16 +98,10 @@ void init_sobol_kernel(State*     states,
 template<typename EngineState>
 constexpr int max_block_size()
 {
-    // Specifically for rocrand_state_threefry2x32_20.
-    // Threefry has very low register usage, so 1024 threads
-    // helps hide memory latency better.
     if constexpr(std::is_same_v<EngineState, rocrand_state_threefry2x32_20>)
-        return 1024;
-    // Dublicate from rocrand.h. Default maximum thread count for most generators.
-    // Higher values (like 1024) typically cause register pressure and slowdowns
-    // in state-heavy generators like Sobol.
+        return ROCRAND_THREEFRY2X32_20_MAX_BLOCK_SIZE;
     else
-        return 256;
+        return ROCRAND_DEFAULT_MAX_BLOCK_SIZE;
 }
 
 template<typename EngineState, typename T, typename Generator>
@@ -113,6 +121,37 @@ void generate_kernel(EngineState* states, T* data, size_t size, Generator genera
     }
 
     states[state_id] = state;
+}
+
+template<typename T, typename Generator>
+__global__ __launch_bounds__(ROCRAND_DEFAULT_MAX_BLOCK_SIZE)
+void generate_mtgp32_kernel(rocrand_state_mtgp32* states, T* data, size_t size, Generator generator)
+{
+    const unsigned int   state_id = blockIdx.x;
+    unsigned int         index    = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int         stride   = gridDim.x * blockDim.x;
+
+    __shared__
+    rocrand_state_mtgp32 state;
+    rocrand_mtgp32_block_copy(&states[state_id], &state);
+
+    const size_t r                 = size % blockDim.x;
+    const size_t size_rounded_down = size - r;
+    const size_t size_rounded_up   = r == 0 ? size : size_rounded_down + blockDim.x;
+    while(index < size_rounded_down)
+    {
+        data[index] = generator(&state);
+        index += stride;
+    }
+    while(index < size_rounded_up)
+    {
+        auto value = generator(&state);
+        if(index < size)
+            data[index] = value;
+        index += stride;
+    }
+
+    rocrand_mtgp32_block_copy(&state, &states[state_id]);
 }
 
 template<typename State, typename T, typename Generator>
@@ -197,6 +236,9 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
         , m_dimensions(dimensions)
         , m_offset(offset)
         , m_poisson_lambda(poisson_lambda)
+        // MTGP32 supports a maximum of 200 independent parameter sets,
+        // so we cap the number of MTGP32 states at 200.
+        , m_mtgp32_states(std::min((size_t)200, m_blocks))
     {}
 
     primbench::json meta() const override
@@ -224,10 +266,11 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
         const size_t      items  = state.bytes / sizeof(T);
         const auto        seed   = state.seed;
 
-        State* d_states{};
-        T*     d_data{};
+        T* d_data{};
+        HIP_CHECK(hipMalloc(&d_data, items * sizeof(T)));
 
-        allocate_states_and_data(items, d_states, d_data);
+        State* d_states = allocate_states();
+
         init_states(stream, seed, d_states);
 
         rocrand_discrete_distribution discrete_dist{};
@@ -246,9 +289,9 @@ struct rocrand_device_api_benchmark : public primbench::benchmark_interface
     }
 
 private:
-    void allocate_states_and_data(size_t items, State*& d_states, T*& d_data)
+    State* allocate_states()
     {
-        HIP_CHECK(hipMalloc(&d_data, items * sizeof(T)));
+        size_t num_states = m_blocks * m_threads;
 
         if constexpr(std::is_same_v<State, rocrand_state_sobol32>
                      || std::is_same_v<State, rocrand_state_sobol64>
@@ -257,22 +300,26 @@ private:
         {
             const size_t states_per_dim  = div_ceil(m_blocks, m_dimensions);
             const size_t padded_blocks_x = next_power2(states_per_dim);
-            const size_t total_states    = padded_blocks_x * m_threads * m_dimensions;
-            HIP_CHECK(hipMalloc(&d_states, total_states * sizeof(State)));
+            num_states                   = padded_blocks_x * m_threads * m_dimensions;
         }
-        else
+        else if constexpr(std::is_same_v<State, rocrand_state_mtgp32>)
         {
-            HIP_CHECK(hipMalloc(&d_states, m_blocks * m_threads * sizeof(State)));
+            num_states = m_mtgp32_states;
         }
+
+        State* d_states{};
+        HIP_CHECK(hipMalloc(&d_states, num_states * sizeof(State)));
+        return d_states;
     }
 
     void init_states(hipStream_t stream, unsigned long long seed, State* d_states)
     {
         if constexpr(std::is_same_v<State, rocrand_state_mtgp32>)
         {
-            const size_t states_size = std::min((size_t)200, m_blocks);
-            ROCRAND_CHECK(
-                rocrand_make_state_mtgp32(d_states, mtgp32dc_params_fast_11213, states_size, seed));
+            ROCRAND_CHECK(rocrand_make_state_mtgp32(d_states,
+                                                    mtgp32dc_params_fast_11213,
+                                                    m_mtgp32_states,
+                                                    seed));
         }
         else if constexpr(std::is_same_v<State, rocrand_state_sobol32>
                           || std::is_same_v<State, rocrand_state_sobol64>
@@ -437,6 +484,14 @@ private:
                                             0,
                                             stream>>>(d_states, d_data, items, gen);
                 }
+                else if constexpr(std::is_same_v<State, rocrand_state_mtgp32>)
+                {
+                    generate_mtgp32_kernel<<<dim3(m_mtgp32_states), dim3(256), 0, stream>>>(
+                        d_states,
+                        d_data,
+                        items,
+                        gen);
+                }
                 else
                 {
                     generate_kernel<<<m_blocks, m_threads, 0, stream>>>(d_states,
@@ -454,6 +509,7 @@ private:
     size_t                m_dimensions;
     size_t                m_offset;
     std::optional<double> m_poisson_lambda;
+    size_t                m_mtgp32_states;
 };
 
 #define QUEUE(T, State, engine, Dist, ...)                                   \
