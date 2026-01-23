@@ -70,7 +70,7 @@ void init_sobol_kernel(State*     states,
         rocrand_init(&directions[dimension * elements_per_dim], offset + state_id, &state);
     }
 
-    states[dimension * gridDim.x * blockDim.x + state_id] = state;
+    states[gridDim.x * blockDim.x * dimension + state_id] = state;
 }
 
 template<typename EngineState>
