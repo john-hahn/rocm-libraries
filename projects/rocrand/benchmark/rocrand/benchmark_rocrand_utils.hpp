@@ -81,10 +81,10 @@ inline std::string engine_name(const rocrand_rng_type rng_type)
     // clang-format on
 }
 
-PRIMBENCH_REGISTER_TYPE(unsigned int, "uint")
-PRIMBENCH_REGISTER_TYPE(unsigned long long int, "ullong")
-PRIMBENCH_REGISTER_TYPE(unsigned char, "uchar")
-PRIMBENCH_REGISTER_TYPE(unsigned short, "ushort")
+PRIMBENCH_REGISTER_TYPE(uint8_t, "u8")
+PRIMBENCH_REGISTER_TYPE(uint16_t, "u16")
+PRIMBENCH_REGISTER_TYPE(uint32_t, "u32")
+PRIMBENCH_REGISTER_TYPE(unsigned long long, "u64")
+PRIMBENCH_REGISTER_TYPE(float, "f32")
+PRIMBENCH_REGISTER_TYPE(double, "f64")
 PRIMBENCH_REGISTER_TYPE(__half, "half")
-PRIMBENCH_REGISTER_TYPE(float, "float")
-PRIMBENCH_REGISTER_TYPE(double, "double")
