@@ -2988,9 +2988,8 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
         lra0 = create_range(min_val=0, num=4, step=1, repeat=6)
         grIncA = create_range(min_val=0, num=3, step=1, repeat=3)
 
-        # # Hide LRA0 latency behind GRIncA
-        # waitLRA0 = max(grIncA)
-        # startPACKA0 = waitLRA0
+        waitLRA0 = max(lra0)+1
+        startPACKA0 = waitLRA0
 
         # Reordering of packA instructions.
         # 4 CVT + 2 4x4x4_16B MFMAs + 4 CVTs
@@ -2998,133 +2997,89 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
         # - having a 5 state wait after each 4x4x4_16B MFMA
         # - having extra latency when switching between MFMA types
         packAOffset = [
-            0, 0, 1, 1, 
-            6, 6,
-            7, 7, 8, 8,
+            1, 1, 1, 1,
+            4, 4,
+            5, 5, 5, 5,
+            
+            2, 2, 2, 2, 
+            4, 4,
+            6, 6, 6, 6,
 
-            2, 2, 3, 3, 
-            6, 6,
-            9, 9, 10, 11,
-
-            4, 4, 5, 5, 
-            6, 6,
-            12, 12, 13, 13,
+            3, 3, 3, 3, 
+            4, 4,
+            7, 7, 7, 7,
         ]
 
-        # packA0 = [x + startPACKA0 for x in packAOffset]
-        # packA0 = [6,6,6,6, 9,9, 10,10,10,10,
-        #           7,7,7,7, 9,9, 11,11,11,11,
-        #           8,8,8,8, 9,9, 12,12,12,12]
-        # packA0 = [8, 8, 8, 8,     11, 11, 12, 12, 12, 12, 
-        #           9, 9, 9, 9,     11, 11, 13, 13, 13, 13, 
-        #           10, 10, 10, 10, 11, 11, 14, 14, 14, 14] # passes valid, fails accuracy
-        
-        # Must end before 11 for accuracy
-        packA0 = [4, 4, 4, 4,  7,7,  8,8,8,8, 
-                  5,5,5,5,  7,7, 9, 9, 9, 9,
-                  6,6,6,6, 7,7, 10, 10, 10,10]
+        packA0 = [x + startPACKA0-1 for x in packAOffset]
         
         packA0Done = max(packA0)
 
         # Sanity check
         assert packA0Done < numMfma//4
 
-        # LRB0 + GRIncB
-        lrb0 = create_range(min_val=max(lra0), num=4, step=1, repeat=4)
+        # LRB0 + GRIncB + packB0
+        lrb0 = create_range(min_val=waitLRA0, num=4, step=1, repeat=4)
         grIncB = create_range(min_val=max(grIncA)+1, num=3, max_val=max(lrb0)+4, step=1, repeat=3)
-        waitLRB0 = max(grIncB)+6
-        startPACKB0 = waitLRB0
-        packBOffset = [ 
-            0, 0, 1, 1, 
-            8, 8,
-            9, 9, 10, 11,
-
-            2, 2, 3, 3, 
-            8, 8,
-            12, 12, 13, 13,
+        waitLRB0 = max(lrb0)+1
+        startPACKB0 = waitLRB0+4
+        packBOffset = [
+            1, 1, 1, 1,
+            3, 3,
+            4, 4, 4, 4,
+            
+            2, 2, 2, 2, 
+            3, 3,
+            5, 5, 5, 5,
         ]
-
-        # packB0 = [x + startPACKB0 for x in packBOffset]
-        packB0 = [13,13,13,13, 15,15, 16,16,16,16,
-                  14,14,14,14, 15,15, 17,17,17,17]
-
-        # GRA                
-        grA = create_range(min_val=max(lrb0)+4, num=6, step=1,repeat=2)
-            #    create_range(min_val=max(packB0)+2, num=6, step=1,repeat=2)]
+        packB0 = [x + startPACKB0 for x in packBOffset]
 
         # GRB
-        grB = create_range(min_val=max(grA)+2, num=4, step=2, repeat=2)
+        grB = create_range(min_val=max(lrb0)+4, num=2, step=2, repeat=2)
+        grB += create_range(min_val=max(grB)+11, num=2, step=2, repeat=2)
+        
+        # GRA        
+        grA = create_range(min_val=max(grB)+2, num=3, step=2, repeat=2)
+        grA += create_range(min_val=max(grA)+11,num=3,step=2, repeat=2)
         
         halfMFMA = numMfma//2
         assert max(packB0) < halfMFMA
 
         # LR3
-        startLRB3 = halfMFMA
-        lrb3 = create_range(min_val=startLRB3, num=8, step=1, repeat=2)
-        # lrb3 += create_range(min_val=max(lrb3)+5, num=4, step=1, repeat=2)
-        packB3 = [45,45,45,45, 47,47, 48,48,48,48,
-                  46,46,46,46, 47,47, 49,49,49,49]
-        # # GRB
-        # grB = create_range(min_val=max(lrb3)+1, num=4, step=2, repeat=2)
-        
+        lrb3 = create_range(min_val=max(grB)+1, num=4, step=1, repeat=2)
+        lrb3 += create_range(min_val=max(lrb3)+9, num=4, step=1, repeat=2)
         waitLRB3 = max(lrb3)+1
-        # grB += create_range(min_val=max(grB)+9,num=4,step=2, repeat=2)
 
         # PackB3
-        # packB3 = [x + waitLRB3 for x in packBOffset]
+        packB3 = [x + waitLRB3 for x in packBOffset]
 
         # LRA3 + PACKA3
         startLRA3 = (3*numMfma)//4 # Can't start before 3/4 MFMAs
         lra3 = create_range(min_val=startLRA3, num=8, step=1, repeat=3)
+
         waitLRA3 = max(lra3)+1
-        # packA3 = [x + waitLRA3 for x in packAOffset]
-        packA3 = [63,63,63,63, 66,66, 67,67,67,67, 
-                  64,64,64,64, 66,66, 68,68,68,68,
-                  65,65,65,65, 66,66, 69,69,69,69]
+        packA3 = [x + waitLRA3 for x in packAOffset]
 
-        # syncTable = [
-        #     # -1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s for next iteration"),
-            
-        #     max(lra0)+2, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRA0 to complete"),
-        #     max(lrb0)+2, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for LRB0 to complete"),
-
-        #     max(lrb0)+2, SBarrier(comment="Barrier before GRA&GRB"),
-
-        #     max(grA)+1, SWaitCnt(dscnt=-1, vlcnt=12, vscnt=-1, comment="Wait for previous GRA"),
-            
-        #     min(lrb3)-1, SWaitCnt(dscnt=-1, vlcnt=8, vscnt=-1, comment="Wait for previous GRB"),
-        #     min(lrb3)-1, SBarrier(comment=""),
-            
-        #     waitLRB3, SWaitCnt(dscnt=8, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB3s before packing"),
-        #     waitLRB3, SBarrier(comment=""),
-            
-        #     waitLRB3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRB3s before packing"),
-            
-        #     waitLRA3, SWaitCnt(dscnt=16, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRA3s before packing"),
-        #     waitLRA3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s before packing"),
-        # ]
-        
         syncTable = [
             -1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s for next iteration"),
             
-            4, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait first 2 LRA0 to complete"),
-            5, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRA0 to complete"),
+            waitLRA0, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait first 2 LRA0 to complete"),
+            waitLRA0+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRA0 to complete"),
 
-            8, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB0s"),
-            9, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s"),
-            9, SBarrier(comment="Barrier before GRA&GRB"),
+            waitLRB0, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB0s"),
+            waitLRB0+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s"),
+            waitLRB0+1, SBarrier(comment="Barrier before GRA&GRB"),
 
-            35, SWaitCnt(dscnt=-1, vlcnt=8, vscnt=-1, comment="Wait for previous GRA&GRB"),
-            35, SBarrier(comment=""),
-
-            44, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB3s"),
-            45, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB3s"),
+            max(grB)+1, SWaitCnt(dscnt=-1, vlcnt=8, vscnt=-1, comment="Wait for previous GRA&GRB"),
+            max(grB)+1, SBarrier(comment=""),
             
-            # 53, SWaitCnt(dscnt=-1, vlcnt=12, vscnt=-1, comment="Wait for previous GRB"),
-            # 53, SBarrier(comment=""),
+            waitLRB3, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB3s"),
+            waitLRB3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB3s"),
 
-            62, SWaitCnt(dscnt=16, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRA3s before packing"),
-            63, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s before packing"),
+            max(grA)+1, SWaitCnt(dscnt=-1, vlcnt=8, vscnt=-1, comment="Wait for previous GRA&GRB"),
+            max(grA)+1, SBarrier(comment=""),
+            
+            waitLRA3, SWaitCnt(dscnt=16, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRA3s before packing"),
+            waitLRA3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s before packing"),
         ]
         
         optSchedule = {
@@ -3162,9 +3117,6 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
     else:
         return False, None
 
-    from pprint import pprint
-    pprint(optSchedule, indent=4, compact=True, width=80)
-    pprint(syncTable)
     opt1 = ScheduleInfo(2, numMfma, optSchedule, syncCode, nglshift, nllshift)
     return True, opt1
 
