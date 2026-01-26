@@ -31,7 +31,6 @@
 
 enum distribution
 {
-    DISTRIBUTION_DEFAULT,
     DISTRIBUTION_UNIFORM,
     DISTRIBUTION_NORMAL,
     DISTRIBUTION_LOG_NORMAL,
@@ -42,7 +41,6 @@ constexpr const char* distribution_name(distribution distribution)
 {
     switch(distribution)
     {
-        case DISTRIBUTION_DEFAULT: return "default";
         case DISTRIBUTION_UNIFORM: return "uniform";
         case DISTRIBUTION_NORMAL: return "normal";
         case DISTRIBUTION_LOG_NORMAL: return "log_normal";
@@ -219,9 +217,9 @@ private:
 #define QUEUE_DISTRIBUTIONS(engine, ordering)                          \
     do                                                                 \
     {                                                                  \
-        QUEUE(unsigned int, engine, ordering, DISTRIBUTION_DEFAULT);   \
-        QUEUE(unsigned char, engine, ordering, DISTRIBUTION_DEFAULT);  \
-        QUEUE(unsigned short, engine, ordering, DISTRIBUTION_DEFAULT); \
+        QUEUE(unsigned int, engine, ordering, DISTRIBUTION_UNIFORM);   \
+        QUEUE(unsigned char, engine, ordering, DISTRIBUTION_UNIFORM);  \
+        QUEUE(unsigned short, engine, ordering, DISTRIBUTION_UNIFORM); \
                                                                        \
         QUEUE(__half, engine, ordering, DISTRIBUTION_UNIFORM);         \
         QUEUE(float, engine, ordering, DISTRIBUTION_UNIFORM);          \
