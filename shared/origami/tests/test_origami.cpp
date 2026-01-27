@@ -534,6 +534,167 @@ TEST_CASE("Origami: select_config_mnk unit test", "[origami]") {
   }
 }
 
+// Formocast Simulation Mode Tests
+
+TEST_CASE("Origami: compute_formocast_latency basic", "[origami][formocast]") {
+  for (int gpu_arch : test_architectures) {
+    DYNAMIC_SECTION("gfx" << gpu_arch << " - Formocast returns positive latency") {
+      auto hardware = make_hardware(gpu_arch);
+      auto problem = make_problem(2048, 2048, 2048);
+      
+      // Create config with simulation mode
+      auto config = make_config(128, 128, 32, 16, 16, 16, false, 8, 2);
+      config.prediction_mode = origami::prediction_modes_t::simulation;
+      
+      // Set Formocast-specific parameters
+      config.depth_u = 32;
+      config.global_split_u = 1;
+      config.grvw_a = 4;
+      config.grvw_b = 4;
+      config.gwvw_d = 4;
+      config.wave_num = 4;
+      config.wave_group_m = 2;
+      config.wave_group_n = 2;
+      config.prefetch_global_read = 2;
+      
+      double latency = origami::compute_formocast_latency(problem, hardware, config);
+      
+      REQUIRE(latency > 0);
+    }
+  }
+}
+
+TEST_CASE("Origami: simulation mode via compute_total_latency", "[origami][formocast]") {
+  for (int gpu_arch : test_architectures) {
+    DYNAMIC_SECTION("gfx" << gpu_arch << " - compute_total_latency uses Formocast in simulation mode") {
+      auto hardware = make_hardware(gpu_arch);
+      auto problem = make_problem(2048, 2048, 2048);
+      
+      // Create config with estimation mode
+      auto config_estimation = make_config(128, 128, 32, 16, 16, 16, false, 8, 2);
+      config_estimation.prediction_mode = origami::prediction_modes_t::estimation;
+      
+      // Create config with simulation mode
+      auto config_simulation = make_config(128, 128, 32, 16, 16, 16, false, 8, 2);
+      config_simulation.prediction_mode = origami::prediction_modes_t::simulation;
+      config_simulation.depth_u = 32;
+      config_simulation.global_split_u = 1;
+      config_simulation.grvw_a = 4;
+      config_simulation.grvw_b = 4;
+      config_simulation.gwvw_d = 4;
+      config_simulation.wave_num = 4;
+      config_simulation.wave_group_m = 2;
+      config_simulation.wave_group_n = 2;
+      config_simulation.prefetch_global_read = 2;
+      
+      double latency_estimation = origami::compute_total_latency(
+          problem, hardware, config_estimation, hardware.N_CU);
+      double latency_simulation = origami::compute_total_latency(
+          problem, hardware, config_simulation, hardware.N_CU);
+      
+      // Both should be positive
+      REQUIRE(latency_estimation > 0);
+      REQUIRE(latency_simulation > 0);
+      
+      // They should produce different results (different models, different units)
+      REQUIRE(latency_estimation != latency_simulation);
+    }
+  }
+}
+
+TEST_CASE("Origami: Formocast with various problem sizes", "[origami][formocast]") {
+  for (int gpu_arch : test_architectures) {
+    DYNAMIC_SECTION("gfx" << gpu_arch << " - Formocast handles various problem sizes") {
+      auto hardware = make_hardware(gpu_arch);
+      
+      std::vector<std::tuple<size_t, size_t, size_t>> problem_sizes = {
+          {1024, 1024, 1024},
+          {2048, 2048, 2048},
+          {4096, 4096, 512},
+          {512, 4096, 4096},
+          {8192, 8192, 1024},
+      };
+      
+      for (const auto& [m, n, k] : problem_sizes) {
+        auto problem = make_problem(m, n, k);
+        
+        auto config = make_config(128, 128, 32, 16, 16, 16, false, 8, 2);
+        config.prediction_mode = origami::prediction_modes_t::simulation;
+        config.depth_u = 32;
+        config.global_split_u = 1;
+        config.grvw_a = 4;
+        config.grvw_b = 4;
+        config.gwvw_d = 4;
+        config.wave_num = 4;
+        config.wave_group_m = 2;
+        config.wave_group_n = 2;
+        
+        double latency = origami::compute_formocast_latency(problem, hardware, config);
+        
+        INFO("Problem size: " << m << "x" << n << "x" << k);
+        REQUIRE(latency > 0);
+      }
+    }
+  }
+}
+
+TEST_CASE("Origami: Formocast with different tile sizes", "[origami][formocast]") {
+  for (int gpu_arch : test_architectures) {
+    DYNAMIC_SECTION("gfx" << gpu_arch << " - Formocast handles different tile sizes") {
+      auto hardware = make_hardware(gpu_arch);
+      auto problem = make_problem(4096, 4096, 4096);
+      
+      std::vector<std::tuple<size_t, size_t, size_t>> tile_sizes = {
+          {64, 64, 32},
+          {128, 128, 32},
+          {256, 256, 32},
+          {128, 256, 64},
+          {256, 128, 64},
+      };
+      
+      for (const auto& [mt_m, mt_n, mt_k] : tile_sizes) {
+        auto config = make_config(mt_m, mt_n, mt_k, 16, 16, 16, false, 8, 2);
+        config.prediction_mode = origami::prediction_modes_t::simulation;
+        config.depth_u = mt_k;
+        config.global_split_u = 1;
+        config.grvw_a = 4;
+        config.grvw_b = 4;
+        config.gwvw_d = 4;
+        config.wave_num = 4;
+        config.wave_group_m = 2;
+        config.wave_group_n = 2;
+        
+        double latency = origami::compute_formocast_latency(problem, hardware, config);
+        
+        INFO("Tile size: " << mt_m << "x" << mt_n << "x" << mt_k);
+        REQUIRE(latency > 0);
+      }
+    }
+  }
+}
+
+TEST_CASE("Origami: Formocast config fields have correct defaults", "[origami][formocast]") {
+  origami::config_t config;
+  
+  // Check default values for Formocast-specific fields
+  REQUIRE(config.depth_u == 0);
+  REQUIRE(config.global_split_u == 1);
+  REQUIRE(config.global_accumulation == 0);
+  REQUIRE(config.local_split_u == 1);
+  REQUIRE(config.grvw_a == 1);
+  REQUIRE(config.grvw_b == 1);
+  REQUIRE(config.gwvw_d == 1);
+  REQUIRE(config.direct_to_vgpr_a == false);
+  REQUIRE(config.direct_to_vgpr_b == false);
+  REQUIRE(config.direct_to_lds_a == false);
+  REQUIRE(config.direct_to_lds_b == false);
+  REQUIRE(config.wave_num == 4);
+  REQUIRE(config.wave_group_m == 2);
+  REQUIRE(config.wave_group_n == 2);
+  REQUIRE(config.prefetch_global_read == 2);
+  REQUIRE(config.prediction_mode == origami::prediction_modes_t::estimation);
+}
+
 TEST_CASE("Origami: select_workgroup_mapping unit test", "[Origami]") {
   for (int gpu_arch : test_architectures) {
     DYNAMIC_SECTION("gfx" << gpu_arch << " - select_workgroup_mapping unit test") {
