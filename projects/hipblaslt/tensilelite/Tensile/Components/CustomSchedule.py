@@ -3075,8 +3075,8 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
             waitLRB3, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB3s"),
             waitLRB3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB3s"),
 
-            max(grA)+1, SWaitCnt(dscnt=-1, vlcnt=8, vscnt=-1, comment="Wait for previous GRA&GRB"),
-            max(grA)+1, SBarrier(comment=""),
+            max(grA)+7, SWaitCnt(dscnt=-1, vlcnt=8, vscnt=-1, comment="Wait for previous GRA&GRB"),
+            max(grA)+7, SBarrier(comment=""),
             
             waitLRA3, SWaitCnt(dscnt=16, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRA3s before packing"),
             waitLRA3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s before packing"),
