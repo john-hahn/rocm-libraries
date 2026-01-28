@@ -3066,10 +3066,10 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
             waitLRA0+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRA0 to complete"),
 
             waitLRB0, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB0s"),
-            waitLRB0+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s"),
-            waitLRB0+1, SBarrier(comment="Barrier before GRA&GRB"),
+            waitLRB0+3, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s"),
+            waitLRB0+3, SBarrier(comment="Barrier before GRA&GRB"),
 
-            max(grB)+1, SWaitCnt(dscnt=-1, vlcnt=8, vscnt=-1, comment="Wait for previous GRA&GRB"),
+            max(grB)+1, SWaitCnt(dscnt=-1, vlcnt=6, vscnt=-1, comment="Wait for previous GRA&GRB"),
             max(grB)+1, SBarrier(comment=""),
             
             waitLRB3, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB3s"),
@@ -3116,7 +3116,9 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
         nglshift = nllshift = len(optSchedule['GRA'][0])//2 + len(optSchedule['GRB'][0])//2
     else:
         return False, None
-
+    from pprint import pprint
+    pprint(optSchedule, indent=4, compact=True, width=80)
+    pprint(syncTable)
     opt1 = ScheduleInfo(2, numMfma, optSchedule, syncCode, nglshift, nllshift)
     return True, opt1
 
