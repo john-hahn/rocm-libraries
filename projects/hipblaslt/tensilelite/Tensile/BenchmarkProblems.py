@@ -82,7 +82,6 @@ def timing_context(category_name):
     else:
         yield
 
-
 def _generate_single_solution(perm, problemType, constantParams, assembler, debugConfig, isaInfoMap):
     """Helper function to generate a single solution from a permutation."""
     try:
