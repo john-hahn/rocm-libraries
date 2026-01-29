@@ -3116,9 +3116,7 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
         nglshift = nllshift = len(optSchedule['GRA'][0])//2 + len(optSchedule['GRB'][0])//2
     else:
         return False, None
-    from pprint import pprint
-    pprint(optSchedule, indent=4, compact=True, width=80)
-    pprint(syncTable)
+
     opt1 = ScheduleInfo(2, numMfma, optSchedule, syncCode, nglshift, nllshift)
     return True, opt1
 
