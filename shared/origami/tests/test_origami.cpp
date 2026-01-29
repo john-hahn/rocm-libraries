@@ -536,7 +536,7 @@ TEST_CASE("Origami: select_config_mnk unit test", "[origami]") {
 
 // Formocast Simulation Mode Tests
 
-TEST_CASE("Origami: compute_formocast_latency basic", "[origami][formocast]") {
+TEST_CASE("Origami: simulation mode basic", "[origami][formocast]") {
   for (int gpu_arch : test_architectures) {
     DYNAMIC_SECTION("gfx" << gpu_arch << " - Formocast returns positive latency") {
       auto hardware = make_hardware(gpu_arch);
@@ -557,7 +557,7 @@ TEST_CASE("Origami: compute_formocast_latency basic", "[origami][formocast]") {
       config.tensile.wave_group_n = 2;
       config.tensile.prefetch_global_read = 2;
       
-      double latency = origami::compute_formocast_latency(problem, hardware, config);
+      double latency = origami::compute_total_latency(problem, hardware, config, hardware.N_CU);
       
       REQUIRE(latency > 0);
     }
@@ -629,7 +629,7 @@ TEST_CASE("Origami: Formocast with various problem sizes", "[origami][formocast]
         config.tensile.wave_group_m = 2;
         config.tensile.wave_group_n = 2;
         
-        double latency = origami::compute_formocast_latency(problem, hardware, config);
+        double latency = origami::compute_total_latency(problem, hardware, config, hardware.N_CU);
         
         INFO("Problem size: " << m << "x" << n << "x" << k);
         REQUIRE(latency > 0);
@@ -664,7 +664,7 @@ TEST_CASE("Origami: Formocast with different tile sizes", "[origami][formocast]"
         config.tensile.wave_group_m = 2;
         config.tensile.wave_group_n = 2;
         
-        double latency = origami::compute_formocast_latency(problem, hardware, config);
+        double latency = origami::compute_total_latency(problem, hardware, config, hardware.N_CU);
         
         INFO("Tile size: " << mt_m << "x" << mt_n << "x" << mt_k);
         REQUIRE(latency > 0);

@@ -40,7 +40,6 @@ try:
         # Performance functions
         compute_perf_gflops,
         compute_total_latency,
-        compute_formocast_latency,
         compute_number_matrix_instructions,
         compute_mt_compute_latency,
         # Memory functions
@@ -100,7 +99,6 @@ __all__ = [
     # Performance functions
     "compute_perf_gflops",
     "compute_total_latency",
-    "compute_formocast_latency",
     "compute_number_matrix_instructions",
     "compute_mt_compute_latency",
     # Memory functions
