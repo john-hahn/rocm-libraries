@@ -343,6 +343,14 @@ template <typename TileDistributionEncoding_,
 using InputTileDistributionTraits =
     TransposeTileDistributionTraits<TileDistributionEncoding_, DataType_, Policy, true>;
 
+// Mixed-precision policy that allows different input and output types
+template <typename InputDataType, typename OutputDataType>
+struct MixedPrecisionTranspose : public DefaultTranspose<InputDataType>
+{
+    // Inherits quad pattern validation from input type
+    // but allows output type to differ
+};
+
 template <typename InnerEncode,
           index_t kLeadIterPerWarp,
           index_t kSecondIterPerWarp,
@@ -373,6 +381,7 @@ CK_TILE_HOST_DEVICE constexpr auto InputTileDistributionEncoding()
  * element space size and vector length remain consistent between the input and output
  * distributions.
  *
+ * @tparam DistributedTensor_     The type of the tensor containing the transposed tile data.
  * @tparam BottomTensorView_      The type of the bottom tensor view.
  * @tparam WindowLengths_         The type representing the window lengths.
  * @tparam TileDistribution_      The type representing the tile distribution.
@@ -380,11 +389,11 @@ CK_TILE_HOST_DEVICE constexpr auto InputTileDistributionEncoding()
  * @tparam Policy                 The transpose policy to use (defaults to DefaultTranspose).
  * the last is SFINAE to ensure the tile distribution encoding is valid.
  *
+ * @param out_tensor              A statically distributed tensor containing the transposed tile
+ * data.
  * @param tile_window             The tile window with static distribution to load and transpose.
  * @param offset                  The offset (in elements) added to the base address before
  * indexing.
- *
- * @return A statically distributed tensor containing the transposed tile data.
  *
  * @note
  * - The function uses compile-time checks to ensure the input and output tile distributions
@@ -392,6 +401,7 @@ CK_TILE_HOST_DEVICE constexpr auto InputTileDistributionEncoding()
  * - The transpose operation is performed according to the specified Policy.
  */
 template <
+    typename DistributedTensor_,
     typename BottomTensorView_,
     typename WindowLengths_,
     typename TileDistribution_,
@@ -401,21 +411,17 @@ template <
                                                                  typename BottomTensorView_::DataType,
                                                                  Policy>::distr_encoding_valid,
                                        Policy>>
-CK_TILE_DEVICE auto load_tile_transpose_with_offset(
+CK_TILE_DEVICE void load_tile_transpose_with_offset(
+    DistributedTensor_& out_tensor,
     const tile_window_with_static_distribution<BottomTensorView_,
                                                WindowLengths_,
                                                TileDistribution_,
                                                NumCoord>& __restrict__ tile_window,
     index_t offset)
 {
-    using OutTileDstrEncode = typename OutputTileDistributionTraits<
-        typename TileDistribution_::DstrEncode,
-        typename BottomTensorView_::DataType>::TransposedDstrEncode;
-    auto out_tensor = make_static_distributed_tensor<typename BottomTensorView_::DataType>(
-        make_static_tile_distribution(OutTileDstrEncode{}));
     auto trans_tensor           = tile_window.template load_transpose_with_offset<Policy>(offset);
     constexpr auto input_distr  = TileDistribution_{};
-    constexpr auto output_distr = make_static_tile_distribution(OutTileDstrEncode{});
+    constexpr auto output_distr = typename DistributedTensor_::StaticTileDistribution{};
 
     constexpr auto y_in_desc  = input_distr.get_ys_to_d_descriptor();
     constexpr auto y_out_desc = output_distr.get_ys_to_d_descriptor();
@@ -442,8 +448,6 @@ CK_TILE_DEVICE auto load_tile_transpose_with_offset(
             number<iAccess>{},
             trans_tensor.get_thread_buffer().template get_as<DataVec>(number<iAccess>{}));
     });
-
-    return out_tensor;
 }
 
 /**
@@ -455,6 +459,7 @@ CK_TILE_DEVICE auto load_tile_transpose_with_offset(
  * element space size and vector length remain consistent between the input and output
  * distributions.
  *
+ * @tparam DistributedTensor_     The type of the tensor containing the transposed tile data.
  * @tparam BottomTensorView_      The type of the bottom tensor view.
  * @tparam WindowLengths_         The type representing the window lengths.
  * @tparam TileDistribution_      The type representing the tile distribution.
@@ -462,16 +467,37 @@ CK_TILE_DEVICE auto load_tile_transpose_with_offset(
  * @tparam Policy                 The transpose policy to use (defaults to DefaultTranspose).
  * the last is SFINAE to ensure the tile distribution encoding is valid.
  *
+ * @param out_tensor              A statically distributed tensor containing the transposed tile
+ * data.
  * @param tile_window             The tile window with static distribution to load and transpose.
  * indexing.
- *
- * @return A statically distributed tensor containing the transposed tile data.
  *
  * @note
  * - The function uses compile-time checks to ensure the input and output tile distributions
  *   are compatible in terms of element space size and vector length.
  * - The transpose operation is performed according to the specified Policy.
  */
+template <
+    typename DistributedTensor_,
+    typename BottomTensorView_,
+    typename WindowLengths_,
+    typename TileDistribution_,
+    index_t NumCoord,
+    typename Policy = DefaultTranspose<typename BottomTensorView_::DataType>,
+    typename        = std::enable_if_t<TransposeTileDistrChecker<TileDistribution_,
+                                                                 typename BottomTensorView_::DataType,
+                                                                 Policy>::distr_encoding_valid,
+                                       Policy>>
+CK_TILE_DEVICE void
+load_tile_transpose(DistributedTensor_& out_tensor,
+                    const tile_window_with_static_distribution<BottomTensorView_,
+                                                               WindowLengths_,
+                                                               TileDistribution_,
+                                                               NumCoord>& __restrict__ tile_window)
+{
+    load_tile_transpose_with_offset(out_tensor, tile_window, 0);
+}
+
 template <
     typename BottomTensorView_,
     typename WindowLengths_,
@@ -488,7 +514,133 @@ load_tile_transpose(const tile_window_with_static_distribution<BottomTensorView_
                                                                TileDistribution_,
                                                                NumCoord>& __restrict__ tile_window)
 {
-    return load_tile_transpose_with_offset(tile_window, 0);
+    using OutTileDstrEncode = typename OutputTileDistributionTraits<
+        typename TileDistribution_::DstrEncode,
+        typename BottomTensorView_::DataType>::TransposedDstrEncode;
+    auto out_tensor = make_static_distributed_tensor<typename BottomTensorView_::DataType>(
+        make_static_tile_distribution(OutTileDstrEncode{}));
+
+    load_tile_transpose_with_offset(out_tensor, tile_window, 0);
+
+    return out_tensor;
+}
+
+/**
+ * @brief Mixed-precision transpose load: converts input data type to output data type while
+ * transposing.
+ *
+ * This function enables transposing from one data type (e.g., fp8) to another (e.g., fp16) in a
+ * single operation. The input tile distribution encoding must be valid for the input data type,
+ * and the output distribution will be generated based on the output data type.
+ *
+ * @tparam DistributedTensor_     The output tensor type with desired output data type.
+ * @tparam BottomTensorView_      The input tensor view (may have different data type than output).
+ * @tparam WindowLengths_         The type representing the window lengths.
+ * @tparam TileDistribution_      The type representing the tile distribution for input.
+ * @tparam NumCoord               The number of coordinates (dimensions).
+ * @tparam Policy                 The transpose policy (should validate against input type).
+ *
+ * @note
+ * - Input and output must have compatible element space sizes (total byte count per Y-space).
+ * - Type conversion is performed element-by-element during the copy.
+ * - The validation uses the input data type for quad pattern checking.
+ * - The output distribution is generated based on the output data type.
+ */
+template <
+    typename DistributedTensor_,
+    typename BottomTensorView_,
+    typename WindowLengths_,
+    typename TileDistribution_,
+    index_t NumCoord,
+    typename Policy = DefaultTranspose<typename BottomTensorView_::DataType>,
+    typename        = std::enable_if_t<TransposeTileDistrChecker<TileDistribution_,
+                                                                 typename BottomTensorView_::DataType,
+                                                                 Policy>::distr_encoding_valid,
+                                       Policy>>
+CK_TILE_DEVICE void load_tile_transpose_convert_with_offset(
+    DistributedTensor_& out_tensor,
+    const tile_window_with_static_distribution<BottomTensorView_,
+                                               WindowLengths_,
+                                               TileDistribution_,
+                                               NumCoord>& __restrict__ tile_window,
+    index_t offset)
+{
+    using InputDataType  = typename BottomTensorView_::DataType;
+    using OutputDataType = typename DistributedTensor_::DataType;
+
+    auto trans_tensor           = tile_window.template load_transpose_with_offset<Policy>(offset);
+    constexpr auto input_distr  = TileDistribution_{};
+    constexpr auto output_distr = typename DistributedTensor_::StaticTileDistribution{};
+
+    constexpr auto y_in_desc  = input_distr.get_ys_to_d_descriptor();
+    constexpr auto y_out_desc = output_distr.get_ys_to_d_descriptor();
+
+    constexpr index_t NDimYIn = input_distr.get_num_of_dimension_y();
+    // constexpr index_t NDimYOut = output_distr.get_num_of_dimension_y();
+
+    constexpr auto y_in_lengths  = to_sequence(y_in_desc.get_lengths());
+    constexpr auto y_out_lengths = to_sequence(y_out_desc.get_lengths());
+
+    constexpr auto y_in_element_space_size  = y_in_desc.get_element_space_size();
+    constexpr auto y_out_element_space_size = y_out_desc.get_element_space_size();
+
+    // For mixed precision: element space size must be the same (total bytes match)
+    static_assert(y_in_element_space_size == y_out_element_space_size,
+                  "For mixed precision transpose, input and output element space size must match!");
+
+    // Allow different vector lengths (e.g., fp8 may vectorize 8 elems, fp16 may vectorize 4).
+    // Ensure total element counts are consistent and divisible by the input vector length.
+    constexpr index_t vecLoadSize = y_in_lengths[NDimYIn - 1];
+    constexpr index_t total_elems_in =
+        reduce_on_sequence(y_in_lengths, multiplies<>{}, number<1>{});
+    constexpr index_t total_elems_out =
+        reduce_on_sequence(y_out_lengths, multiplies<>{}, number<1>{});
+    static_assert(total_elems_in == total_elems_out,
+                  "For mixed precision transpose, input/output element counts must match!");
+    static_assert(total_elems_in % vecLoadSize == 0,
+                  "Input vector length must evenly divide total elements.");
+
+    constexpr index_t num_of_access = total_elems_in / vecLoadSize;
+
+    // Read as input type, convert to output type
+    using InputDataVec = array<InputDataType, vecLoadSize>;
+    static_for<0, num_of_access, 1>{}([&](auto iAccess) {
+        auto input_vec =
+            trans_tensor.get_thread_buffer().template get_as<InputDataVec>(number<iAccess>{});
+
+        // Element-wise type conversion
+        // This will be unrolled by the compiler for each element in the vector
+        static_for<0, vecLoadSize, 1>{}([&](auto iElem) {
+            auto output_elem = type_convert<OutputDataType>(input_vec[iElem]);
+            out_tensor.get_thread_buffer()[number<iAccess * vecLoadSize + iElem>{}] = output_elem;
+        });
+    });
+}
+
+/**
+ * @brief Mixed-precision transpose load with zero offset.
+ *
+ * Convenience wrapper for load_tile_transpose_convert_with_offset with offset=0.
+ */
+template <
+    typename DistributedTensor_,
+    typename BottomTensorView_,
+    typename WindowLengths_,
+    typename TileDistribution_,
+    index_t NumCoord,
+    typename Policy = DefaultTranspose<typename BottomTensorView_::DataType>,
+    typename        = std::enable_if_t<TransposeTileDistrChecker<TileDistribution_,
+                                                                 typename BottomTensorView_::DataType,
+                                                                 Policy>::distr_encoding_valid,
+                                       Policy>>
+CK_TILE_DEVICE void load_tile_transpose_convert(
+    DistributedTensor_& out_tensor,
+    const tile_window_with_static_distribution<BottomTensorView_,
+                                               WindowLengths_,
+                                               TileDistribution_,
+                                               NumCoord>& __restrict__ tile_window)
+{
+    load_tile_transpose_convert_with_offset(out_tensor, tile_window, 0);
 }
 
 } // namespace ck_tile

@@ -112,7 +112,6 @@ struct UniversalGemmBasePolicy
         using ADataType             = OverrideADataType;
         constexpr index_t MPerBlock = Problem::BlockGemmShape::kM;
         constexpr index_t KPerBlock = Problem::BlockGemmShape::kK;
-        constexpr index_t KPack     = Derived::template GetSmemPackA<Problem>();
 
         if constexpr(is_a_load_tr<Problem>)
         {
@@ -246,6 +245,7 @@ struct UniversalGemmBasePolicy
             }
             else // A is in RowMajor
             {
+                constexpr index_t KPack        = Derived::template GetSmemPackA<Problem>();
                 constexpr auto DataTypeSize    = sizeof(ADataType);
                 constexpr uint64_t MinLdsLayer = 1ULL;
                 constexpr auto MLdsLayer =
@@ -302,15 +302,12 @@ struct UniversalGemmBasePolicy
      * @tparam Problem  Gemm pipeline problem.
      * @return B tensor LDS block descriptor.
      */
-    template <typename Problem>
+    template <typename Problem,
+              typename OverrideBDataType = remove_cvref_t<typename Problem::BDataType>>
     CK_TILE_DEVICE static constexpr auto MakeBLdsBlockDescriptor()
     {
-        using BLayout = remove_cvref_t<typename Problem::BLayout>;
-        using BDataType =
-            std::conditional_t<std::is_same_v<typename Problem::BDataType, pk_fp4_raw_t>,
-                               typename Problem::ADataType,
-                               typename Problem::BDataType>;
-
+        using BLayout               = remove_cvref_t<typename Problem::BLayout>;
+        using BDataType             = OverrideBDataType;
         constexpr index_t NPerBlock = Problem::BlockGemmShape::kN;
         constexpr index_t KPerBlock = Problem::BlockGemmShape::kK;
 
@@ -895,14 +892,10 @@ struct UniversalGemmPipelineAgBgCrPolicy
             : vector_size * 4 == thread_elements              ? WGAttrNumAccessEnum::Quad
                                                               : WGAttrNumAccessEnum::Invalid;
 
-        using ADataType = remove_cvref_t<typename Problem::ADataType>;
-        using BDataType = remove_cvref_t<typename Problem::BDataType>;
-        using ATypeToUse =
-            std::conditional_t<std::is_same_v<ADataType, pk_int4_t>, BDataType, ADataType>;
-        using BTypeToUse = std::conditional_t<std::is_same_v<BDataType, pk_int4_t> ||
-                                                  std::is_same_v<BDataType, pk_fp4_raw_t>,
-                                              ADataType,
-                                              BDataType>;
+        using ADataType  = remove_cvref_t<typename Problem::ADataType>;
+        using BDataType  = remove_cvref_t<typename Problem::BDataType>;
+        using ATypeToUse = typename DetermineWarpPrecType<ADataType, BDataType>::a_prec_type;
+        using BTypeToUse = typename DetermineWarpPrecType<ADataType, BDataType>::b_prec_type;
 
         using WarpGemm = WarpGemmDispatcher<ATypeToUse,
                                             BTypeToUse,
