@@ -40,10 +40,7 @@ struct BQuantGemmPipelineAgBgCrCompV3 : public BaseGemmPipelineAgBgCrCompV3<Prob
 
     // BDataType gets converted from PkInt4 during loading
     using OverrideBDataType =
-        std::conditional_t<std::is_same_v<BDataType, pk_int4_t> &&
-                               std::is_same_v<BLayout, tensor_layout::gemm::RowMajor>,
-                           ADataType,
-                           BDataType>;
+        std::conditional_t<std::is_same_v<BDataType, pk_int4_t>, ADataType, BDataType>;
 
     static_assert(BQuantGroupSize::kM == 1, "only N/K blocks for BQuant kernel!");
     using I0 = number<0>;
@@ -185,10 +182,8 @@ struct BQuantGemmPipelineAgBgCrCompV3 : public BaseGemmPipelineAgBgCrCompV3<Prob
         CK_TILE_DEVICE static void LoadAndConvertBTile(BBlockTile_& b_block_tile,
                                                        const BDramWindow& b_dram_window)
         {
-            using DestDataType            = typename BBlockTile_::DataType;
-            using SrcDataType             = typename BDramWindow::Base::TileWindowBase::DataType;
             constexpr index_t UnaryOpSize = 8;
-            load_int4_tile<SrcDataType, DestDataType, UnaryOpSize>(b_block_tile, b_dram_window);
+            load_and_convert_tile<UnaryOpSize>(b_block_tile, b_dram_window);
         }
 
         template <typename BBlockTile_, typename BDramWindow, typename BDramTileWindowStep>
