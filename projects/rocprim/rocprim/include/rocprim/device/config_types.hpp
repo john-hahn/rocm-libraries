@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2018-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -328,7 +328,7 @@ struct comp_targets
 
 /**
  * \brief Checks if the first `n` characters of `rhs` are equal to `lhs`
- * 
+ *
  * \param lhs the string to compare against
  * \param rhs the string to compare with
  * \param n length of the substring of `rhs` to chceck
@@ -404,10 +404,10 @@ constexpr arch::wavefront::target gen_wavefront_size(const gen gen)
 
 /**
  * \brief Get the current architecture in device compilation.
- * 
+ *
  * This function will always return `unknown` when called from the host, host could should instead
  * call host_target_arch to query the current device from the HIP API.
- * 
+ *
  * \return target_arch the architecture currently being compiled for on the device.
  */
 constexpr target_arch device_target_arch()
@@ -434,13 +434,15 @@ struct launch_plan
         return hipGetLastError();
     }
 
-    hipError_t launch_with_max_active_blocks(dim3 block_size, size_t shared_mem, hipStream_t stream) const
+    hipError_t
+        launch_with_max_active_blocks(dim3 block_size, size_t shared_mem, hipStream_t stream) const
     {
         int grid_size;
-        ROCPRIM_RETURN_ON_ERROR(::rocprim::detail::grid_dim_for_max_active_blocks(grid_size,
-                                                                                  block_size.x * block_size.y * block_size.z,
-                                                                                  kernel,
-                                                                                  stream));
+        ROCPRIM_RETURN_ON_ERROR(::rocprim::detail::grid_dim_for_max_active_blocks(
+            grid_size,
+            block_size.x * block_size.y * block_size.z,
+            kernel,
+            stream));
         kernel<<<grid_size, block_size, shared_mem, stream>>>(device_callback);
         return hipGetLastError();
     }
