@@ -3196,10 +3196,10 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
         syncTable = [
             -1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s for next iteration"),
             
-            4, SWaitCnt(dscnt=2, vlcnt=-1, vscnt=-1, comment="Wait first 2 LRA0 to complete"),
+            4, SWaitCnt(dscnt=4, vlcnt=-1, vscnt=-1, comment="Wait for 20 LRA0 to complete"),
             5, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRA0 to complete"),
 
-            8, SWaitCnt(dscnt=8, vlcnt=-1, vscnt=-1, comment="Wait for first 2 LRB0s"),
+            8, SWaitCnt(dscnt=8, vlcnt=-1, vscnt=-1, comment="Wait for first 8 LRB0s"),
             11, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s"),
             11, SBarrier(comment="Barrier before GRA&GRB"),
 
