@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2025 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -356,10 +356,10 @@ inline hipError_t histogram_impl(void*          temporary_storage,
         plan.device_callback.shared_histograms = chosen_shared_histograms;
         plan.device_callback.rows_per_block    = rows_per_block;
 
-        plan.launch(grid_size,
-                    dim3(block_size, 1),
-                    chosen_shared_histograms * block_histogram_bytes,
-                    stream);
+        ROCPRIM_RETURN_ON_ERROR(plan.launch(grid_size,
+                                            dim3(block_size, 1),
+                                            chosen_shared_histograms * block_histogram_bytes,
+                                            stream));
 
         ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("histogram_shared",
                                                     grid_size.x * grid_size.y * block_size,

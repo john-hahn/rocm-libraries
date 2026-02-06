@@ -1,4 +1,4 @@
-// Copyright (c) 2024 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2024-2026 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -272,7 +272,10 @@ hipError_t find_first_of_impl(void*          temporary_storage,
         {
             start = std::chrono::steady_clock::now();
         }
-        find_first_of_configured_kernel.launch(num_blocks, block_size, shared_memory_size, stream);
+        ROCPRIM_RETURN_ON_ERROR(find_first_of_configured_kernel.launch(num_blocks,
+                                                                       block_size,
+                                                                       shared_memory_size,
+                                                                       stream));
         ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("find_first_of_kernel", size, start);
     }
 
