@@ -111,8 +111,10 @@ namespace rocRoller
                 auto                        ex2    = sub.call(expr);
                 auto                        myComp = complexity(ex2);
 
-                if(ignoreComplexity || !evalTimes[EvaluationTime::KernelExecute]
-                   || complexity(expr) >= m_minComplexity)
+                bool isMagicOperation = std::holds_alternative<MagicMultiple>(*expr) || std::holds_alternative<MagicShifts>(*expr) || std::holds_alternative<MagicShiftAndSign>(*expr);
+
+                if(ignoreComplexity || isMagicOperation ||
+                   complexity(expr) >= m_minComplexity)
                     return addLaunchEval(expr);
 
                 return nullptr;
