@@ -24,6 +24,7 @@
  *
  *******************************************************************************/
 
+#include "rocRoller/InstructionValues/Register_impl.hpp"
 #include <algorithm>
 #include <numeric>
 #include <queue>
@@ -133,8 +134,7 @@ namespace rocRoller
             using RegisterValue = std::variant<Register::ValuePtr>;
 
             Register::ValuePtr resultPlaceholder(ResultType const& resType,
-                                                 bool              allowSpecial = true,
-                                                 int               valueCount   = 1)
+                                                 bool              allowSpecial = true)
             {
                 auto regType = resType.regType;
                 if(IsWriteableSpecial(regType))
@@ -147,25 +147,8 @@ namespace rocRoller
                 return Register::Value::Placeholder(m_context,
                                                     regType,
                                                     resType.varType,
-                                                    valueCount,
+                                                    resType.valueCount,
                                                     Register::AllocationOptions::FullyContiguous());
-            }
-
-            int resultValueCount(Register::ValuePtr const&              dest,
-                                 std::vector<Register::ValuePtr> const& operands)
-
-            {
-                if(dest)
-                {
-                    return dest->valueCount();
-                }
-
-                std::vector<int> count;
-                std::transform(
-                    operands.cbegin(), operands.cend(), std::back_inserter(count), [](auto x) {
-                        return x->valueCount() * DataTypeInfo::Get(x->variableType()).packing;
-                    });
-                return *std::max_element(count.cbegin(), count.cend());
             }
 
             Register::Type promoteRegisterTypes(std::vector<Register::ValuePtr> const& regs)
@@ -345,14 +328,12 @@ namespace rocRoller
                 auto const lhsInfo = DataTypeInfo::Get(lhs->variableType());
                 auto const rhsInfo = DataTypeInfo::Get(rhs->variableType());
 
-                int valueCount = resultValueCount(dest, {lhs, rhs});
-
                 if(!dest)
                 {
-                    dest = resultPlaceholder(resType, true, valueCount);
+                    dest = resultPlaceholder(resType, true);
                 }
 
-                for(size_t k = 0; k < dest->valueCount(); ++k)
+                for(size_t k = 0; k < resType.valueCount; ++k)
                 {
                     // TODD: Consolidate with other similar code
                     // that only calls `->element` if conditions are met
@@ -391,11 +372,9 @@ namespace rocRoller
                 auto const rhsInfo  = DataTypeInfo::Get(rhs->variableType());
                 auto const destInfo = DataTypeInfo::Get(resType.varType);
 
-                int valueCount = resultValueCount(dest, {lhs, rhs});
-
                 // TODO: Should this be pushed to arithmetic generators?
                 // If any sources were AGPRs, copy to VGPRs first.
-                if(valueCount > 1 && resType.regType == Register::Type::Accumulator)
+                if(resType.valueCount > 1 && resType.regType == Register::Type::Accumulator)
                 {
                     const auto& arch = m_context->targetArchitecture();
                     AssertFatal(arch.HasCapability(GPUCapability::HasAccCD),
@@ -409,7 +388,7 @@ namespace rocRoller
 
                 if(dest == nullptr)
                 {
-                    dest = resultPlaceholder(resType, true, valueCount / destInfo.packing);
+                    dest = resultPlaceholder(resType, true);
                 }
                 else
                 {
@@ -446,9 +425,9 @@ namespace rocRoller
                     int packingRatio = std::max(lhsInfo.packing, rhsInfo.packing)
                                        / std::min(lhsInfo.packing, rhsInfo.packing);
 
-                    auto conversion = resultPlaceholder(resType, true, packingRatio);
+                    auto conversion = resultPlaceholder(resType, true);
 
-                    for(size_t i = 0; i < valueCount; i += packingRatio)
+                    for(size_t i = 0; i < resType.valueCount; i += packingRatio)
                     {
                         Register::ValuePtr lhsVal, rhsVal;
                         if(lhsInfo.packing < rhsInfo.packing)
@@ -489,7 +468,7 @@ namespace rocRoller
                                     || rhs->variableType() == resType.varType,
                                 "Only one floating point argument can be converted");
 
-                    auto conversion = resultPlaceholder(resType, true, 1);
+                    auto conversion = resultPlaceholder(resType, true);
 
                     for(size_t k = 0; k < dest->valueCount(); ++k)
                     {
@@ -576,7 +555,7 @@ namespace rocRoller
                 co_yield prepareSourceOperands(results, schedulerLockCount, subExprs);
 
                 // Convert one value at a time
-                dest = resultPlaceholder(resultType(expr), true, results[0]->valueCount());
+                dest = resultPlaceholder(resultType(expr), true);
 
                 // Assume the seed is a single scalar value. Consider allowing a
                 // vector of seeds?
@@ -637,7 +616,7 @@ namespace rocRoller
 
                 co_yield prepareSourceOperands(results, schedulerLockCount, subExprs);
                 auto regType    = promoteRegisterTypes(results);
-                auto valueCount = resultValueCount(dest, results);
+                auto valueCount = Register::broadcastValueCount(results);
 
                 if(valueCount > 1 && regType == Register::Type::Accumulator)
                 {
@@ -657,7 +636,7 @@ namespace rocRoller
 
                 if(!dest)
                 {
-                    dest = resultPlaceholder({regType, varType}, true, valueCount);
+                    dest = resultPlaceholder({regType, varType, valueCount}, true);
                 }
 
                 for(size_t k = 0; k < valueCount; ++k)
@@ -694,9 +673,9 @@ namespace rocRoller
 
                 co_yield prepareSourceOperands(results, schedulerLockCount, subExprs);
                 auto regType    = promoteRegisterTypes(results);
-                auto valueCount = resultValueCount(dest, results);
+                auto valueCount = Register::broadcastValueCount(results);
 
-                if(valueCount > 1 && regType == Register::Type::Accumulator)
+                if(regType == Register::Type::Accumulator)
                 {
                     const auto& arch = m_context->targetArchitecture();
                     AssertFatal(arch.HasCapability(GPUCapability::HasAccCD),
@@ -713,7 +692,7 @@ namespace rocRoller
                 if(!dest)
                 {
                     auto varType = promoteVariableTypes(results);
-                    dest         = resultPlaceholder({regType, varType}, true, valueCount);
+                    dest         = resultPlaceholder({regType, varType, valueCount}, true);
                 }
 
                 //If dest, results have multiple elements, handled inside generateOp
@@ -736,12 +715,12 @@ namespace rocRoller
                 auto cond = results[0];
                 results.erase(results.begin());
                 auto regType    = promoteRegisterTypes(results);
-                auto valueCount = resultValueCount(dest, results);
+                auto valueCount = Register::broadcastValueCount(results);
 
                 if(dest == nullptr)
                 {
                     auto varType = promoteVariableTypes(results);
-                    dest         = resultPlaceholder({regType, varType}, true, valueCount);
+                    dest         = resultPlaceholder({regType, varType, valueCount}, true);
                 }
 
                 for(size_t k = 0; k < valueCount; ++k)
@@ -810,13 +789,11 @@ namespace rocRoller
                     if(isUnpacking)
                     {
                         // unpacking args into (multiple registers) dest
-                        dest = resultPlaceholder(
-                            destType, true, results[0]->valueCount() * packingRatio);
+                        dest = resultPlaceholder(destType, true);
                     }
                     else
                     {
-                        dest = resultPlaceholder(
-                            destType, true, results[0]->valueCount() / packingRatio);
+                        dest = resultPlaceholder(destType, true);
                     }
                 }
 
