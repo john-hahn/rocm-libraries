@@ -135,37 +135,37 @@ struct rocrand_host_api_benchmark : public primbench::benchmark_interface
 
         const auto launch = [&]
         {
-            if constexpr(std::is_same_v<T, unsigned int>)
+            if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, unsigned int>)
                 return rocrand_generate(generator, data, items);
-            else if constexpr(std::is_same_v<T, unsigned char>)
+            else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, unsigned char>)
                 return rocrand_generate_char(generator, data, items);
-            else if constexpr(std::is_same_v<T, unsigned short>)
+            else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, unsigned short>)
                 return rocrand_generate_short(generator, data, items);
-            else if constexpr(std::is_same_v<T, __half> && Distribution == DISTRIBUTION_UNIFORM)
+            else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, __half>)
                 return rocrand_generate_uniform_half(generator, data, items);
-            else if constexpr(std::is_same_v<T, float> && Distribution == DISTRIBUTION_UNIFORM)
+            else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, float>)
                 return rocrand_generate_uniform(generator, data, items);
-            else if constexpr(std::is_same_v<T, double> && Distribution == DISTRIBUTION_UNIFORM)
+            else if constexpr(Distribution == DISTRIBUTION_UNIFORM && std::is_same_v<T, double>)
                 return rocrand_generate_uniform_double(generator, data, items);
-            else if constexpr(std::is_same_v<T, __half> && Distribution == DISTRIBUTION_NORMAL)
+            else if constexpr(Distribution == DISTRIBUTION_NORMAL && std::is_same_v<T, __half>)
                 return rocrand_generate_normal_half(generator,
                                                     data,
                                                     items,
                                                     __float2half(0.0f),
                                                     __float2half(1.0f));
-            else if constexpr(std::is_same_v<T, float> && Distribution == DISTRIBUTION_NORMAL)
+            else if constexpr(Distribution == DISTRIBUTION_NORMAL && std::is_same_v<T, float>)
                 return rocrand_generate_normal(generator, data, items, 0.0f, 1.0f);
-            else if constexpr(std::is_same_v<T, double> && Distribution == DISTRIBUTION_NORMAL)
+            else if constexpr(Distribution == DISTRIBUTION_NORMAL && std::is_same_v<T, double>)
                 return rocrand_generate_normal_double(generator, data, items, 0.0, 1.0);
-            else if constexpr(std::is_same_v<T, __half> && Distribution == DISTRIBUTION_LOG_NORMAL)
+            else if constexpr(Distribution == DISTRIBUTION_LOG_NORMAL && std::is_same_v<T, __half>)
                 return rocrand_generate_log_normal_half(generator,
                                                         data,
                                                         items,
                                                         __float2half(0.0f),
                                                         __float2half(1.0f));
-            else if constexpr(std::is_same_v<T, float> && Distribution == DISTRIBUTION_LOG_NORMAL)
+            else if constexpr(Distribution == DISTRIBUTION_LOG_NORMAL && std::is_same_v<T, float>)
                 return rocrand_generate_log_normal(generator, data, items, 0.0f, 1.0f);
-            else if constexpr(std::is_same_v<T, double> && Distribution == DISTRIBUTION_LOG_NORMAL)
+            else if constexpr(Distribution == DISTRIBUTION_LOG_NORMAL && std::is_same_v<T, double>)
                 return rocrand_generate_log_normal_double(generator, data, items, 0.0, 1.0);
             else if constexpr(Distribution == DISTRIBUTION_POISSON)
                 return rocrand_generate_poisson(generator, data, items, *m_poisson_lambda);
