@@ -24,8 +24,6 @@
  *
  *******************************************************************************/
 
-#include "rocRoller/InstructionValues/Register_impl.hpp"
-#include "rocRoller/Utilities/Error.hpp"
 #include <variant>
 
 #include <rocRoller/DataTypes/DataTypes.hpp>

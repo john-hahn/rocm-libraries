@@ -704,9 +704,7 @@ def html_summary(  # noqa: C901
     <title>{}</title>
   </head>
   <body>
-""".format(
-            "Performance"
-        ),
+""".format("Performance"),
         file=html_file,
     )
 

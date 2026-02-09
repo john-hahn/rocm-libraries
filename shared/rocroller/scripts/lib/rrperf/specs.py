@@ -114,8 +114,7 @@ class MachineSpecs(yaml.YAMLObject):
         )
 
     def pretty_string(self):
-        return dedent(
-            f"""\
+        return dedent(f"""\
         Host info:
             hostname:       {self.hostname}
             cpu info:       {self.cpu}
@@ -130,8 +129,7 @@ class MachineSpecs(yaml.YAMLObject):
             performance level: {self.perflevel}
             system clock:      {self.sclk}
             memory clock:      {self.mclk}
-        """
-        )
+        """)
 
 
 def run(cmd):

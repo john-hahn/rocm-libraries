@@ -54,7 +54,7 @@ special_registers = {
 def initialize_registers(registers):
     retval = ""
     for register in registers.values():
-        (name, index, register_type, children) = register
+        name, index, register_type, children = register
         if index is not None:
             continue
         retval += """auto {} = std::make_shared<Register::Value>(m_context,
@@ -70,7 +70,7 @@ def initialize_registers(registers):
 def declare_registers(registers):
     retval = ""
     for register in registers.values():
-        (name, index, register_type, children) = register
+        name, index, register_type, children = register
         if index is not None:
             continue
         retval += "Register::ValuePtr {};\n".format(name)
@@ -81,7 +81,7 @@ def declare_registers(registers):
 def define_registers(registers):
     retval = ""
     for register in registers.values():
-        (name, index, register_type, children) = register
+        name, index, register_type, children = register
         if index is not None:
             continue
         retval += """{} = std::make_shared<Register::Value>(m_context,
@@ -95,7 +95,7 @@ def define_registers(registers):
 def allocate_registers(struct_name, registers):
     retval = ""
     for register in registers.values():
-        (name, index, register_type, children) = register
+        name, index, register_type, children = register
         if index is not None:
             continue
         if children > 1:
@@ -205,7 +205,7 @@ def convert_arg(arg, registers, labels):
     if arg in special_registers:
         return special_registers[arg]
     elif arg in registers:
-        (name, index, register_type, children) = registers[arg]
+        name, index, register_type, children = registers[arg]
         if index is None:
             return name
         else:
@@ -240,9 +240,7 @@ namespace rocRollerTest
     struct {name}
     {{
         ContextPtr m_context;
-""".format(
-        name=cli_args.function_name
-    )
+""".format(name=cli_args.function_name)
 
     result += declare_labels(labels)
     result += declare_registers(registers)
@@ -252,9 +250,7 @@ namespace rocRollerTest
         {name}(ContextPtr context)
             : m_context(context)
         {{
-""".format(
-        name=cli_args.function_name
-    )
+""".format(name=cli_args.function_name)
 
     result += define_labels(labels)
     result += define_registers(registers)
@@ -268,9 +264,7 @@ namespace rocRollerTest
 
             // clang-format off
 return {{
-""".format(
-        block_count
-    )
+""".format(block_count)
 
     line_count = 0
     in_macro = False
@@ -291,9 +285,7 @@ return {{
         {{
             // clang-format off
 return {{
-""".format(
-                block_count
-            )
+""".format(block_count)
 
     result += """
 }};
@@ -304,9 +296,7 @@ return {{
     Generator<Instruction> {name}_Program(ContextPtr context)
     {{
         {name} gen(context);
-""".format(
-        name=cli_args.function_name
-    )
+""".format(name=cli_args.function_name)
 
     result += allocate_registers(cli_args.function_name, registers)
 
