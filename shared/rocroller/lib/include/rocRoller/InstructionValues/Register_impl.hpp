@@ -226,7 +226,7 @@ namespace rocRoller
             else
             {
                 Throw<FatalError>("Each operand's value count in an expression must either "
-                                  "be 1 or equal to all other non-1 value counts",
+                                  "be 1 or equal to all other non-1 value counts\n",
                                   ShowValue(lhsValueCount),
                                   ShowValue(rhsValueCount));
             }
@@ -244,7 +244,7 @@ namespace rocRoller
                     else
                         AssertFatal(valueCount == operandValueCount,
                                     "Each operand's value count in an expression must either "
-                                    "be 1 or equal to all other non-1 value counts",
+                                    "be 1 or equal to all other non-1 value counts\n",
                                     ShowValue(valueCount),
                                     ShowValue(operandValueCount));
                 }
@@ -266,7 +266,7 @@ namespace rocRoller
                     else
                         AssertFatal(valueCount == operandValueCount,
                                     "Each operand's value count in an expression must either "
-                                    "be 1 or equal to all other non-1 value counts",
+                                    "be 1 or equal to all other non-1 value counts\n",
                                     ShowValue(valueCount),
                                     ShowValue(operandValueCount));
                 }
