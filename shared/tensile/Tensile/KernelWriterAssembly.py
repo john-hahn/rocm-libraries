@@ -294,7 +294,7 @@ class KernelWriterAssembly(KernelWriter):
     elif vgprsAligned < 1:           return maxOccupancy
     occupancy = min(totalVgprs//vgprsAligned, maxOccupancy)
 
-    #print("vgprs = ", vgprs, "vgprsAligned = ", vgprsAligned, "doubleVgpr = " ,doubleVgpr, "Occupancy = ", occupancy)
+    print("vgprs = ", vgprs, "vgprsAligned = ", vgprsAligned, "doubleVgpr = " ,doubleVgpr, "Occupancy = ", occupancy)
 
     return occupancy
 
