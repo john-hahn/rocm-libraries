@@ -5520,8 +5520,18 @@ class KernelWriter(metaclass=abc.ABCMeta):
 
     if kernel["EnableMatrixInstruction"]:
       from rocisa.instruction import getMFMAIssueLatency, getSMFMAIssueLatency
-      self.states.miLatency, miIssueLatency = getSMFMAIssueLatency(kernel["ProblemType"]["DataType"].toEnum(), kernel["MatrixInstM"], kernel["MatrixInstB"]) if kernel["ProblemType"]["Sparse"] else \
-                                              getMFMAIssueLatency(kernel["ProblemType"]["DataType"].toEnum(), kernel["MatrixInstM"], kernel["MatrixInstB"])
+      # Use effective MI input type for latency; rocisa needs the MFMA operand type,
+      # so pass F32XdlMathOp when enabled. DataType alone would be wrong.
+      miInputType = (
+          kernel["ProblemType"]["F32XdlMathOp"] if kernel["EnableF32XdlMathOp"]
+          else kernel["ProblemType"]["DataType"])
+      if kernel["ProblemType"]["Sparse"]:
+        self.states.miLatency, miIssueLatency = getSMFMAIssueLatency(
+            miInputType.toEnum(), kernel["MatrixInstM"], kernel["MatrixInstB"])
+      else:
+        self.states.miLatency, miIssueLatency = getMFMAIssueLatency(
+            miInputType.toEnum(), kernel["MatrixInstM"], kernel["MatrixInstB"])
+
       # TODO: Avoid the logic which does not make sense.
       # For gfx950, we can't issue any VALU or DS instruction in next 4 cycles.
       # Changed the value based on this and also to mitigate some instruction scheduling issues.
