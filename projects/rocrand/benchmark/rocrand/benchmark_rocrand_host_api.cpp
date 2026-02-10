@@ -258,7 +258,7 @@ private:
 
 int main(int argc, char* argv[])
 {
-    primbench::executor executor(argc, argv, 128 * primbench::MiB, primbench::flags::sync);
+    primbench::executor executor(argc, argv, 512 * primbench::MiB, primbench::flags::sync);
 
     auto dimensions
         = executor.get<size_t>("dimensions", 1, "Number of dimensions of quasi-random values");
