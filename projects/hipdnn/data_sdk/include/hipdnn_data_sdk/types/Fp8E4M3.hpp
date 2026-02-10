@@ -13,8 +13,75 @@
 namespace hipdnn_data_sdk::types
 {
 
+// Forward declarations for cross-type conversions
+// NOLINTBEGIN(readability-identifier-naming) - lowercase to match type definitions
+struct bfloat16;
+struct half;
+struct fp8_e5m2;
+// NOLINTEND(readability-identifier-naming)
+
 namespace detail
 {
+
+// ============================================================================
+// FP8 E4M3 (OCP Format) Bit Layout Constants
+// ============================================================================
+// OCP E4M3 format: 1 sign bit, 4 exponent bits, 3 mantissa bits
+// - No infinity representation (uses max value for saturation)
+// - NaN represented as all 1s in mantissa (0x7F positive, 0xFF negative)
+//
+// Bit layout: [S|EEEE|MMM]
+//              7 6  3 2 0
+// ============================================================================
+
+/// Sign bit mask (bit 7)
+constexpr uint8_t FP8_E4M3_SIGN_MASK = 0x80;
+
+/// Absolute value mask (all bits except sign)
+constexpr uint8_t FP8_E4M3_ABS_MASK = 0x7F;
+
+/// Exponent field mask (bits 3-6)
+constexpr uint8_t FP8_E4M3_EXP_MASK = 0x78;
+
+/// Mantissa field mask (bits 0-2)
+constexpr uint8_t FP8_E4M3_MANT_MASK = 0x07;
+
+/// Exponent bias for OCP E4M3
+constexpr int FP8_E4M3_EXP_BIAS = 7;
+
+/// Number of mantissa bits
+constexpr int FP8_E4M3_MANT_BITS = 3;
+
+/// Number of exponent bits
+constexpr int FP8_E4M3_EXP_BITS = 4;
+
+/// Maximum exponent value (before bias)
+constexpr int FP8_E4M3_MAX_EXP = 15;
+
+// ============================================================================
+// FP8 E4M3 Special Values (bit patterns)
+// ============================================================================
+
+/// NaN: all mantissa bits set (0x7F for positive sign, 0xFF for negative)
+constexpr uint8_t FP8_E4M3_NAN = 0x7F;
+
+/// Maximum finite positive value: 0x7E = 448.0
+constexpr uint8_t FP8_E4M3_MAX = 0x7E;
+
+/// Minimum positive normal value: 2^-6 = 0.015625
+constexpr uint8_t FP8_E4M3_MIN_NORMAL = 0x08;
+
+/// Minimum positive denormal value
+constexpr uint8_t FP8_E4M3_DENORM_MIN = 0x01;
+
+/// Maximum finite negative value (lowest): -448.0
+constexpr uint8_t FP8_E4M3_LOWEST = 0xFE;
+
+/// Epsilon: 2^-3 = 0.125
+constexpr uint8_t FP8_E4M3_EPSILON = 0x20;
+
+/// Round error (0.5)
+constexpr uint8_t FP8_E4M3_ROUND_ERROR = 0x38;
 
 // NOLINTBEGIN(readability-identifier-naming,readability-implicit-bool-conversion,modernize-use-auto)
 
@@ -188,6 +255,12 @@ struct fp8_e4m3
     {
     }
 
+    // EXPLICIT constructors from other custom types (via float)
+    // These are defined inline but require forward declarations above
+    inline explicit fp8_e4m3(bfloat16 b) noexcept;
+    inline explicit fp8_e4m3(half h) noexcept;
+    inline explicit fp8_e4m3(fp8_e5m2 f) noexcept;
+
     // Factory for raw bits
     // NOLINTNEXTLINE(readability-identifier-naming) - using snake_case for factory function
     static constexpr fp8_e4m3 from_bits(uint8_t bits) noexcept
@@ -212,7 +285,7 @@ struct fp8_e4m3
     // Unary negation - XOR sign bit
     fp8_e4m3 operator-() const noexcept
     {
-        return from_bits(data ^ 0x80);
+        return from_bits(data ^ detail::FP8_E4M3_SIGN_MASK);
     }
 
     // Unary plus
@@ -312,79 +385,78 @@ static_assert(std::is_standard_layout_v<fp8_e4m3>, "fp8_e4m3 must be standard la
 
 // User-defined literal
 // NOLINTNEXTLINE(readability-identifier-naming)
-inline fp8_e4m3 operator""_fp8e4(long double val)
+inline fp8_e4m3 operator""_fp8(long double val)
 {
     return fp8_e4m3(static_cast<float>(val));
 }
 
-} // namespace hipdnn_data_sdk::types
+// ============================================================================
+// Math functions for fp8_e4m3 (in hipdnn_data_sdk::types namespace)
+// ============================================================================
+// These are defined in our namespace to enable ADL (Argument Dependent Lookup).
+// Use unqualified calls like: fabs(x), isnan(x), etc.
+// ============================================================================
 
-// std:: namespace math function overloads
-namespace std
+inline fp8_e4m3 abs(fp8_e4m3 x)
 {
-
-inline hipdnn_data_sdk::types::fp8_e4m3 abs(hipdnn_data_sdk::types::fp8_e4m3 x)
-{
-    return hipdnn_data_sdk::types::fp8_e4m3::from_bits(x.data & 0x7F);
+    return fp8_e4m3::from_bits(x.data & detail::FP8_E4M3_ABS_MASK);
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 fabs(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 fabs(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3::from_bits(x.data & 0x7F);
+    return fp8_e4m3::from_bits(x.data & detail::FP8_E4M3_ABS_MASK);
 }
 
-inline bool isnan(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline bool isnan(fp8_e4m3 x)
 {
-    // E4M3 NaN: 0x7F or 0xFF (all exponent and mantissa bits set)
-    return (x.data & 0x7F) == 0x7F;
+    // E4M3 NaN: all exponent and mantissa bits set (0x7F or 0xFF)
+    return (x.data & detail::FP8_E4M3_ABS_MASK) == detail::FP8_E4M3_NAN;
 }
 
-inline bool isinf(hipdnn_data_sdk::types::fp8_e4m3 /*x*/)
+inline bool isinf(fp8_e4m3 /*x*/)
 {
     // E4M3 has no infinity representation
     return false;
 }
 
-inline bool signbit(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline bool signbit(fp8_e4m3 x)
 {
-    return (x.data & 0x80) != 0;
+    return (x.data & detail::FP8_E4M3_SIGN_MASK) != 0;
 }
 
-inline bool isfinite(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline bool isfinite(fp8_e4m3 x)
 {
-    return !std::isnan(x);
+    return !isnan(x);
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 max(hipdnn_data_sdk::types::fp8_e4m3 a,
-                                            hipdnn_data_sdk::types::fp8_e4m3 b)
+inline fp8_e4m3 max(fp8_e4m3 a, fp8_e4m3 b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x7F); // NaN
+        return fp8_e4m3::from_bits(detail::FP8_E4M3_NAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
     return a > b ? a : b;
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 min(hipdnn_data_sdk::types::fp8_e4m3 a,
-                                            hipdnn_data_sdk::types::fp8_e4m3 b)
+inline fp8_e4m3 min(fp8_e4m3 a, fp8_e4m3 b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x7F); // NaN
+        return fp8_e4m3::from_bits(detail::FP8_E4M3_NAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
@@ -392,48 +464,48 @@ inline hipdnn_data_sdk::types::fp8_e4m3 min(hipdnn_data_sdk::types::fp8_e4m3 a,
 }
 
 // Rounding functions
-inline hipdnn_data_sdk::types::fp8_e4m3 floor(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 floor(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::floor(static_cast<float>(x)));
+    return fp8_e4m3(std::floor(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 ceil(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 ceil(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::ceil(static_cast<float>(x)));
+    return fp8_e4m3(std::ceil(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 round(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 round(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::round(static_cast<float>(x)));
+    return fp8_e4m3(std::round(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 trunc(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 trunc(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::trunc(static_cast<float>(x)));
+    return fp8_e4m3(std::trunc(static_cast<float>(x)));
 }
 
 // Math functions (compute in float)
-inline hipdnn_data_sdk::types::fp8_e4m3 exp(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 exp(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::exp(static_cast<float>(x)));
+    return fp8_e4m3(std::exp(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 log(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 log(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::log(static_cast<float>(x)));
+    return fp8_e4m3(std::log(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 sqrt(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 sqrt(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::sqrt(static_cast<float>(x)));
+    return fp8_e4m3(std::sqrt(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e4m3 tanh(hipdnn_data_sdk::types::fp8_e4m3 x)
+inline fp8_e4m3 tanh(fp8_e4m3 x)
 {
-    return hipdnn_data_sdk::types::fp8_e4m3(std::tanh(static_cast<float>(x)));
+    return fp8_e4m3(std::tanh(static_cast<float>(x)));
 }
 
-} // namespace std
+} // namespace hipdnn_data_sdk::types
 
 // std::numeric_limits specialization
 // NOLINTBEGIN(readability-identifier-naming) - standard library names must match exactly
@@ -467,27 +539,32 @@ public:
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 min() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x08); // smallest positive normal: 2^-6
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_MIN_NORMAL);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 lowest() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0xFE); // -max = -448
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_LOWEST);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 max() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x7E); // max = 448
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_MAX);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 epsilon() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x20); // 2^-3 = 0.125
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_EPSILON);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 round_error() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x38); // 0.5
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_ROUND_ERROR);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 infinity() noexcept
@@ -498,17 +575,21 @@ public:
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 quiet_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x7F);
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_NAN);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 signaling_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x7F); // Same as quiet NaN
+        // E4M3 has only one NaN representation
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_NAN);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e4m3 denorm_min() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(0x01); // smallest denormal
+        return hipdnn_data_sdk::types::fp8_e4m3::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E4M3_DENORM_MIN);
     }
 };
 // NOLINTEND(readability-identifier-naming)

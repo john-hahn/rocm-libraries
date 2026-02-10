@@ -63,9 +63,9 @@ std::vector<ConvWrwToleranceTestCase>
     return {{-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
             {-1.0, 1.0, -1.0, 1.0, {1}, 0.0, true},
             // N=1. Accum = 1. Tol = 2 * 1^2 * 2^-23 = 2 * 2^-23
-            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 2.0 * std::pow(2.0, -23)},
+            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 2.0 * hipdnn_data_sdk::types::pow(2.0, -23)},
             // N=2. Accum = 2. Tol = 2 * 2^2 * 2^-23 = 8 * 2^-23
-            {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 8.0 * std::pow(2.0, -23)},
+            {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 8.0 * hipdnn_data_sdk::types::pow(2.0, -23)},
             // N=10. Accum = 10. Tol = 2 * 10^2 * 2^-23 = 200 * 2^-23
             // Exact gamma: (20 * 2^-23) / (1 - 20 * 2^-23) * 10
             {-1.0,
@@ -73,7 +73,8 @@ std::vector<ConvWrwToleranceTestCase>
              -1.0,
              1.0,
              {10, 1, 1, 1},
-             (20.0 * std::pow(2.0, -23)) / (1.0 - 20.0 * std::pow(2.0, -23)) * 10.0},
+             (20.0 * hipdnn_data_sdk::types::pow(2.0, -23))
+                 / (1.0 - 20.0 * hipdnn_data_sdk::types::pow(2.0, -23)) * 10.0},
             // Large values: range -1000, 1000. maxProduct = 10^6.
             // N=10. Accum = 10. Tol = gamma * 10^7
             {-1000.0,
@@ -81,7 +82,8 @@ std::vector<ConvWrwToleranceTestCase>
              -1000.0,
              1000.0,
              {10, 1, 1, 1},
-             (20.0 * std::pow(2.0, -23)) / (1.0 - 20.0 * std::pow(2.0, -23)) * 1.0e7}};
+             (20.0 * hipdnn_data_sdk::types::pow(2.0, -23))
+                 / (1.0 - 20.0 * hipdnn_data_sdk::types::pow(2.0, -23)) * 1.0e7}};
 }
 
 // Float / Double / Float (Input casting error)
@@ -94,9 +96,9 @@ std::vector<ConvWrwToleranceTestCase>
     getConvWrwToleranceTestCases<TypeTriple<float, double, float>>()
 {
     return {// N=1. Accum = 1. Tol = (2 + 2) * 2^-23 = 4 * 2^-23
-            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 4.0 * std::pow(2.0, -23)},
+            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 4.0 * hipdnn_data_sdk::types::pow(2.0, -23)},
             // N=10. Accum = 10. Tol = (200 + 20) * 2^-23 = 220 * 2^-23
-            {-1.0, 1.0, -1.0, 1.0, {10, 1, 1, 1}, 220.0 * std::pow(2.0, -23)}};
+            {-1.0, 1.0, -1.0, 1.0, {10, 1, 1, 1}, 220.0 * hipdnn_data_sdk::types::pow(2.0, -23)}};
 }
 
 // HipBfloat16 / Float / Float (High Precision Compute: Linear)
@@ -110,33 +112,55 @@ std::vector<ConvWrwToleranceTestCase>
         {-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
         {-1.0, 1.0, -1.0, 1.0, {1}, 0.0, true},
         // N=1. Accum = 1. Tol = 2 * 2^-23 + 1 * 2^-7
-        {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 2.0 * std::pow(2.0, -23) + std::pow(2.0, -7)},
+        {-1.0,
+         1.0,
+         -1.0,
+         1.0,
+         {1, 1, 1, 1},
+         2.0 * hipdnn_data_sdk::types::pow(2.0, -23) + hipdnn_data_sdk::types::pow(2.0, -7)},
         // N=2. Accum = 2. Tol = 8 * 2^-23 + 2 * 2^-7
-        {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 8.0 * std::pow(2.0, -23) + 2.0 * std::pow(2.0, -7)},
+        {-1.0,
+         1.0,
+         -1.0,
+         1.0,
+         {2, 1, 1, 1},
+         8.0 * hipdnn_data_sdk::types::pow(2.0, -23) + 2.0 * hipdnn_data_sdk::types::pow(2.0, -7)},
         // N=10. Accum = 10. Tol = 200 * 2^-23 + 10 * 2^-7
         {-1.0,
          1.0,
          -1.0,
          1.0,
          {10, 1, 1, 1},
-         200.0 * std::pow(2.0, -23) + 10.0 * std::pow(2.0, -7)}};
+         200.0 * hipdnn_data_sdk::types::pow(2.0, -23)
+             + 10.0 * hipdnn_data_sdk::types::pow(2.0, -7)}};
 }
 
 // HipBfloat16 / HipBfloat16 / HipBfloat16 (Lower Precision: Statistical)
-// Error = K * sqrt(2N) * u * (N * maxProduct) = K * N * sqrt(2N) * u * maxProduct
+// Error = K * hipdnn_data_sdk::types::sqrt(2N) * u * (N * maxProduct) = K * N * hipdnn_data_sdk::types::sqrt(2N) * u * maxProduct
 template <>
 std::vector<ConvWrwToleranceTestCase>
     getConvWrwToleranceTestCases<TypeTriple<bfloat16, bfloat16, bfloat16>>()
 {
     // 2^-7 = 0.0078125
-    return {{-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
-            {-1.0, 1.0, -1.0, 1.0, {1}, 0.0, true},
-            // N=1. Accum = 1. Tol = 6 * 1 * sqrt(2) * 2^-7
-            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 6.0 * std::sqrt(2.0) * std::pow(2.0, -7)},
-            // N=2. Accum = 2. Tol = 6 * 2 * sqrt(4) * 2^-7 = 24 * 2^-7 = 0.1875
-            {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 24.0 * std::pow(2.0, -7)},
-            // N=10. Accum = 10. Tol = 6 * 10 * sqrt(20) * 2^-7
-            {-1.0, 1.0, -1.0, 1.0, {10, 1, 1, 1}, 60.0 * std::sqrt(20.0) * std::pow(2.0, -7)}};
+    return {
+        {-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
+        {-1.0, 1.0, -1.0, 1.0, {1}, 0.0, true},
+        // N=1. Accum = 1. Tol = 6 * 1 * hipdnn_data_sdk::types::sqrt(2) * 2^-7
+        {-1.0,
+         1.0,
+         -1.0,
+         1.0,
+         {1, 1, 1, 1},
+         6.0 * hipdnn_data_sdk::types::sqrt(2.0) * hipdnn_data_sdk::types::pow(2.0, -7)},
+        // N=2. Accum = 2. Tol = 6 * 2 * hipdnn_data_sdk::types::sqrt(4) * 2^-7 = 24 * 2^-7 = 0.1875
+        {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 24.0 * hipdnn_data_sdk::types::pow(2.0, -7)},
+        // N=10. Accum = 10. Tol = 6 * 10 * hipdnn_data_sdk::types::sqrt(20) * 2^-7
+        {-1.0,
+         1.0,
+         -1.0,
+         1.0,
+         {10, 1, 1, 1},
+         60.0 * hipdnn_data_sdk::types::sqrt(20.0) * hipdnn_data_sdk::types::pow(2.0, -7)}};
 }
 
 // Half / Float / Float (High Precision Compute: Linear)
@@ -149,31 +173,52 @@ std::vector<ConvWrwToleranceTestCase> getConvWrwToleranceTestCases<TypeTriple<ha
         {-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
         {-1.0, 1.0, -1.0, 1.0, {1}, 0.0, true},
         // N=1. Accum = 1. Tol = 2 * 2^-23 + 1 * 2^-10
-        {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 2.0 * std::pow(2.0, -23) + std::pow(2.0, -10)},
+        {-1.0,
+         1.0,
+         -1.0,
+         1.0,
+         {1, 1, 1, 1},
+         2.0 * hipdnn_data_sdk::types::pow(2.0, -23) + hipdnn_data_sdk::types::pow(2.0, -10)},
         // N=2. Accum = 2. Tol = 8 * 2^-23 + 2 * 2^-10
-        {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 8.0 * std::pow(2.0, -23) + 2.0 * std::pow(2.0, -10)},
+        {-1.0,
+         1.0,
+         -1.0,
+         1.0,
+         {2, 1, 1, 1},
+         8.0 * hipdnn_data_sdk::types::pow(2.0, -23) + 2.0 * hipdnn_data_sdk::types::pow(2.0, -10)},
         // N=10. Accum = 10. Tol = 200 * 2^-23 + 10 * 2^-10
         {-1.0,
          1.0,
          -1.0,
          1.0,
          {10, 1, 1, 1},
-         200.0 * std::pow(2.0, -23) + 10.0 * std::pow(2.0, -10)}};
+         200.0 * hipdnn_data_sdk::types::pow(2.0, -23)
+             + 10.0 * hipdnn_data_sdk::types::pow(2.0, -10)}};
 }
 
 // Half / Half / Half (Lower Precision: Statistical)
-// Error = K * N * sqrt(2N) * u * maxProduct
+// Error = K * N * hipdnn_data_sdk::types::sqrt(2N) * u * maxProduct
 template <>
 std::vector<ConvWrwToleranceTestCase> getConvWrwToleranceTestCases<TypeTriple<half, half, half>>()
 {
     return {{-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
             {-1.0, 1.0, -1.0, 1.0, {1}, 0.0, true},
-            // N=1. Accum = 1. Tol = 6 * 1 * sqrt(2) * 2^-10
-            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 6.0 * std::sqrt(2.0) * std::pow(2.0, -10)},
-            // N=2. Accum = 2. Tol = 6 * 2 * sqrt(4) * 2^-10 = 24 * 2^-10
-            {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 24.0 * std::pow(2.0, -10)},
-            // N=10. Accum = 10. Tol = 6 * 10 * sqrt(20) * 2^-10
-            {-1.0, 1.0, -1.0, 1.0, {10, 1, 1, 1}, 60.0 * std::sqrt(20.0) * std::pow(2.0, -10)}};
+            // N=1. Accum = 1. Tol = 6 * 1 * hipdnn_data_sdk::types::sqrt(2) * 2^-10
+            {-1.0,
+             1.0,
+             -1.0,
+             1.0,
+             {1, 1, 1, 1},
+             6.0 * hipdnn_data_sdk::types::sqrt(2.0) * hipdnn_data_sdk::types::pow(2.0, -10)},
+            // N=2. Accum = 2. Tol = 6 * 2 * hipdnn_data_sdk::types::sqrt(4) * 2^-10 = 24 * 2^-10
+            {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 24.0 * hipdnn_data_sdk::types::pow(2.0, -10)},
+            // N=10. Accum = 10. Tol = 6 * 10 * hipdnn_data_sdk::types::sqrt(20) * 2^-10
+            {-1.0,
+             1.0,
+             -1.0,
+             1.0,
+             {10, 1, 1, 1},
+             60.0 * hipdnn_data_sdk::types::sqrt(20.0) * hipdnn_data_sdk::types::pow(2.0, -10)}};
 }
 
 template <typename Out, typename In, typename Comp>

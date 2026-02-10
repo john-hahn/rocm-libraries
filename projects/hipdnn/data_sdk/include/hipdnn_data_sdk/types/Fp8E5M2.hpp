@@ -13,8 +13,84 @@
 namespace hipdnn_data_sdk::types
 {
 
+// Forward declarations for cross-type conversions
+// NOLINTBEGIN(readability-identifier-naming) - lowercase to match type definitions
+struct bfloat16;
+struct half;
+struct fp8_e4m3;
+// NOLINTEND(readability-identifier-naming)
+
 namespace detail
 {
+
+// ============================================================================
+// FP8 E5M2 (OCP Format) Bit Layout Constants
+// ============================================================================
+// OCP E5M2 format: 1 sign bit, 5 exponent bits, 2 mantissa bits
+// - Has infinity representation (exponent all 1s, mantissa 0)
+// - Has NaN representation (exponent all 1s, mantissa non-zero)
+//
+// Bit layout: [S|EEEEE|MM]
+//              7 6   2 1 0
+// ============================================================================
+
+/// Sign bit mask (bit 7)
+constexpr uint8_t FP8_E5M2_SIGN_MASK = 0x80;
+
+/// Absolute value mask (all bits except sign)
+constexpr uint8_t FP8_E5M2_ABS_MASK = 0x7F;
+
+/// Exponent field mask (bits 2-6)
+constexpr uint8_t FP8_E5M2_EXP_MASK = 0x7C;
+
+/// Mantissa field mask (bits 0-1)
+constexpr uint8_t FP8_E5M2_MANT_MASK = 0x03;
+
+/// Exponent bias for OCP E5M2
+constexpr int FP8_E5M2_EXP_BIAS = 15;
+
+/// Number of mantissa bits
+constexpr int FP8_E5M2_MANT_BITS = 2;
+
+/// Number of exponent bits
+constexpr int FP8_E5M2_EXP_BITS = 5;
+
+/// Maximum exponent value (before bias)
+constexpr int FP8_E5M2_MAX_EXP = 31;
+
+// ============================================================================
+// FP8 E5M2 Special Values (bit patterns)
+// ============================================================================
+
+/// Positive infinity: exponent all 1s, mantissa 0 (0x7C)
+constexpr uint8_t FP8_E5M2_POS_INF = 0x7C;
+
+/// Negative infinity
+constexpr uint8_t FP8_E5M2_NEG_INF = 0xFC;
+
+/// Quiet NaN: exponent all 1s, mantissa all 1s (0x7F)
+constexpr uint8_t FP8_E5M2_QNAN = 0x7F;
+
+/// Signaling NaN: exponent all 1s, mantissa non-zero but not all 1s (0x7D)
+constexpr uint8_t FP8_E5M2_SNAN = 0x7D;
+
+/// Maximum finite positive value: 0x7B = 57344.0
+constexpr uint8_t FP8_E5M2_MAX = 0x7B;
+
+/// Minimum positive normal value: 2^-14 = 6.1e-5
+constexpr uint8_t FP8_E5M2_MIN_NORMAL = 0x04;
+
+/// Minimum positive denormal value
+constexpr uint8_t FP8_E5M2_DENORM_MIN = 0x01;
+
+/// Maximum finite negative value (lowest): -57344.0
+constexpr uint8_t FP8_E5M2_LOWEST = 0xFB;
+
+/// Epsilon: 2^-2 = 0.25
+constexpr uint8_t FP8_E5M2_EPSILON = 0x34;
+
+/// Round error (0.5)
+constexpr uint8_t FP8_E5M2_ROUND_ERROR = 0x38;
 
 // NOLINTBEGIN(readability-identifier-naming,readability-implicit-bool-conversion,modernize-use-auto)
 
@@ -206,6 +282,12 @@ struct fp8_e5m2
     {
     }
 
+    // EXPLICIT constructors from other custom types (via float)
+    // These are defined inline but require forward declarations above
+    inline explicit fp8_e5m2(bfloat16 b) noexcept;
+    inline explicit fp8_e5m2(half h) noexcept;
+    inline explicit fp8_e5m2(fp8_e4m3 f) noexcept;
+
     // Factory for raw bits
     // NOLINTNEXTLINE(readability-identifier-naming) - using snake_case for factory function
     static constexpr fp8_e5m2 from_bits(uint8_t bits) noexcept
@@ -230,7 +312,7 @@ struct fp8_e5m2
     // Unary negation - XOR sign bit
     fp8_e5m2 operator-() const noexcept
     {
-        return from_bits(data ^ 0x80);
+        return from_bits(data ^ detail::FP8_E5M2_SIGN_MASK);
     }
 
     // Unary plus
@@ -330,79 +412,79 @@ static_assert(std::is_standard_layout_v<fp8_e5m2>, "fp8_e5m2 must be standard la
 
 // User-defined literal
 // NOLINTNEXTLINE(readability-identifier-naming)
-inline fp8_e5m2 operator""_fp8e5(long double val)
+inline fp8_e5m2 operator""_bfp8(long double val)
 {
     return fp8_e5m2(static_cast<float>(val));
 }
 
-} // namespace hipdnn_data_sdk::types
+// ============================================================================
+// Math functions for fp8_e5m2 (in hipdnn_data_sdk::types namespace)
+// ============================================================================
+// These are defined in our namespace to enable ADL (Argument Dependent Lookup).
+// Use unqualified calls like: fabs(x), isnan(x), etc.
+// ============================================================================
 
-// std:: namespace math function overloads
-namespace std
+inline fp8_e5m2 abs(fp8_e5m2 x)
 {
-
-inline hipdnn_data_sdk::types::fp8_e5m2 abs(hipdnn_data_sdk::types::fp8_e5m2 x)
-{
-    return hipdnn_data_sdk::types::fp8_e5m2::from_bits(x.data & 0x7F);
+    return fp8_e5m2::from_bits(x.data & detail::FP8_E5M2_ABS_MASK);
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 fabs(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 fabs(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2::from_bits(x.data & 0x7F);
+    return fp8_e5m2::from_bits(x.data & detail::FP8_E5M2_ABS_MASK);
 }
 
-inline bool isnan(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline bool isnan(fp8_e5m2 x)
 {
-    // E5M2 NaN: exp=31 (0x7C mask after shifting), mantissa!=0
-    return ((x.data & 0x7C) == 0x7C) && ((x.data & 0x03) != 0);
+    // E5M2 NaN: exponent all 1s and mantissa non-zero
+    return (x.data & detail::FP8_E5M2_EXP_MASK) == detail::FP8_E5M2_EXP_MASK
+           && (x.data & detail::FP8_E5M2_MANT_MASK) != 0;
 }
 
-inline bool isinf(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline bool isinf(fp8_e5m2 x)
 {
-    // E5M2 Infinity: exp=31, mantissa=0
-    return (x.data & 0x7F) == 0x7C;
+    // E5M2 Infinity: exponent all 1s and mantissa 0
+    return (x.data & detail::FP8_E5M2_ABS_MASK) == detail::FP8_E5M2_POS_INF;
 }
 
-inline bool signbit(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline bool signbit(fp8_e5m2 x)
 {
-    return (x.data & 0x80) != 0;
+    return (x.data & detail::FP8_E5M2_SIGN_MASK) != 0;
 }
 
-inline bool isfinite(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline bool isfinite(fp8_e5m2 x)
 {
-    return !std::isnan(x) && !std::isinf(x);
+    return !isnan(x) && !isinf(x);
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 max(hipdnn_data_sdk::types::fp8_e5m2 a,
-                                            hipdnn_data_sdk::types::fp8_e5m2 b)
+inline fp8_e5m2 max(fp8_e5m2 a, fp8_e5m2 b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x7F); // NaN
+        return fp8_e5m2::from_bits(detail::FP8_E5M2_QNAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
     return a > b ? a : b;
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 min(hipdnn_data_sdk::types::fp8_e5m2 a,
-                                            hipdnn_data_sdk::types::fp8_e5m2 b)
+inline fp8_e5m2 min(fp8_e5m2 a, fp8_e5m2 b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x7F); // NaN
+        return fp8_e5m2::from_bits(detail::FP8_E5M2_QNAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
@@ -410,48 +492,48 @@ inline hipdnn_data_sdk::types::fp8_e5m2 min(hipdnn_data_sdk::types::fp8_e5m2 a,
 }
 
 // Rounding functions
-inline hipdnn_data_sdk::types::fp8_e5m2 floor(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 floor(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::floor(static_cast<float>(x)));
+    return fp8_e5m2(std::floor(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 ceil(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 ceil(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::ceil(static_cast<float>(x)));
+    return fp8_e5m2(std::ceil(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 round(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 round(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::round(static_cast<float>(x)));
+    return fp8_e5m2(std::round(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 trunc(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 trunc(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::trunc(static_cast<float>(x)));
+    return fp8_e5m2(std::trunc(static_cast<float>(x)));
 }
 
 // Math functions (compute in float)
-inline hipdnn_data_sdk::types::fp8_e5m2 exp(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 exp(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::exp(static_cast<float>(x)));
+    return fp8_e5m2(std::exp(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 log(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 log(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::log(static_cast<float>(x)));
+    return fp8_e5m2(std::log(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 sqrt(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 sqrt(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::sqrt(static_cast<float>(x)));
+    return fp8_e5m2(std::sqrt(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::fp8_e5m2 tanh(hipdnn_data_sdk::types::fp8_e5m2 x)
+inline fp8_e5m2 tanh(fp8_e5m2 x)
 {
-    return hipdnn_data_sdk::types::fp8_e5m2(std::tanh(static_cast<float>(x)));
+    return fp8_e5m2(std::tanh(static_cast<float>(x)));
 }
 
-} // namespace std
+} // namespace hipdnn_data_sdk::types
 
 // std::numeric_limits specialization
 // NOLINTBEGIN(readability-identifier-naming) - standard library names must match exactly
@@ -485,47 +567,56 @@ public:
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 min() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x04); // smallest positive normal: 2^-14
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_MIN_NORMAL);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 lowest() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0xFB); // -max = -57344
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_LOWEST);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 max() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x7B); // max = 57344
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_MAX);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 epsilon() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x34); // 2^-2 = 0.25
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_EPSILON);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 round_error() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x38); // 0.5
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_ROUND_ERROR);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 infinity() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x7C); // +inf
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_POS_INF);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 quiet_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x7F);
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_QNAN);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 signaling_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x7D);
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_SNAN);
     }
 
     static constexpr hipdnn_data_sdk::types::fp8_e5m2 denorm_min() noexcept
     {
-        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(0x01); // smallest denormal
+        return hipdnn_data_sdk::types::fp8_e5m2::from_bits(
+            hipdnn_data_sdk::types::detail::FP8_E5M2_DENORM_MIN);
     }
 };
 // NOLINTEND(readability-identifier-naming)

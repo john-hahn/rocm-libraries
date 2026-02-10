@@ -740,8 +740,8 @@ TEST(TestCpuFpReferenceBatchnormFp32, BatchnormBackwardWithoutSavedStats2DMinima
     EXPECT_NEAR(dbiasTensor.getHostValue(0, 0), 0.6f, tolerance);
     EXPECT_NEAR(dscaleTensor.getHostValue(0, 0), 0.199999f, tolerance);
     // dx values are small due to mean subtraction in backward formula
-    EXPECT_TRUE(std::isfinite(dxTensor.getHostValue(0, 0)));
-    EXPECT_TRUE(std::isfinite(dxTensor.getHostValue(1, 0)));
+    EXPECT_TRUE(hipdnn_data_sdk::types::isfinite(dxTensor.getHostValue(0, 0)));
+    EXPECT_TRUE(hipdnn_data_sdk::types::isfinite(dxTensor.getHostValue(1, 0)));
 }
 
 TEST(TestCpuFpReferenceBatchnormFp32, BatchnormBackwardWithoutSavedStatsLargeEpsilon)

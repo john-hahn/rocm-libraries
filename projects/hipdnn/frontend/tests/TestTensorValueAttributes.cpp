@@ -11,8 +11,8 @@
 
 // using namespace hipdnn_frontend::graph;
 using namespace hipdnn_data_sdk::data_objects;
-using hipdnn_data_sdk::types::bfloat16;
-using hipdnn_data_sdk::types::half;
+using hipdnn_frontend::bfloat16;
+using hipdnn_frontend::half;
 using namespace hipdnn_data_sdk::types; // NOLINT(google-build-using-namespace) - for literals
 
 constexpr float PI_FLOAT = 3.14159265358979323846f;
@@ -129,7 +129,7 @@ TEST(TestTensorValueAttributes, PackUnpackBFloat1Value)
         .set_name("half_tensor")
         .set_data_type(hipdnn_frontend::DataType::BFLOAT16)
         .set_is_virtual(false)
-        .set_value(1.0_bf16);
+        .set_value(1.0_bf);
 
     flatbuffers::FlatBufferBuilder builder;
     auto fbOffset = tensor.pack_attributes(builder);
@@ -141,13 +141,13 @@ TEST(TestTensorValueAttributes, PackUnpackBFloat1Value)
     EXPECT_EQ(fbTensor->value_type(), TensorValue::BFloat16Value);
     auto hval = fbTensor->value_as_BFloat16Value();
     ASSERT_NE(hval, nullptr);
-    EXPECT_EQ(bfloat16(hval->value()), 1.0_bf16);
+    EXPECT_EQ(bfloat16(hval->value()), 1.0_bf);
 
     auto unpacked = std::unique_ptr<TensorAttributesT>(fbTensor->UnPack());
     ASSERT_EQ(unpacked->value.type, TensorValue::BFloat16Value);
     auto* halfVal = unpacked->value.AsBFloat16Value();
     ASSERT_NE(halfVal, nullptr);
-    EXPECT_EQ(bfloat16(halfVal->value()), 1.0_bf16);
+    EXPECT_EQ(bfloat16(halfVal->value()), 1.0_bf);
 }
 
 TEST(TestTensorValueAttributes, PackUnpackDoubleValue)
@@ -257,5 +257,5 @@ TEST(TestTensorValueAttributes, NumericLimits)
 
     auto dval = fbTensor->value_as_Float64Value();
     ASSERT_NE(dval, nullptr);
-    EXPECT_TRUE(std::isinf(dval->value()));
+    EXPECT_TRUE(isinf(dval->value()));
 }

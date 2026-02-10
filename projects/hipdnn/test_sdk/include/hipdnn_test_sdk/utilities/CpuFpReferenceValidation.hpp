@@ -17,12 +17,30 @@ template <class T>
 class CpuFpReferenceValidation : public IReferenceValidation
 {
 public:
-    CpuFpReferenceValidation(T absoluteTolerance = std::numeric_limits<T>::epsilon(),
-                             T relativeTolerance = std::numeric_limits<T>::epsilon())
+    /// Construct with T type tolerances directly
+    /// SFINAE disabled for float T to avoid ambiguity with float overload
+    template <typename U = T, typename = std::enable_if_t<!std::is_same_v<U, float>>>
+    CpuFpReferenceValidation(T absoluteTolerance, T relativeTolerance)
         : _absoluteTolerance(absoluteTolerance)
         , _relativeTolerance(relativeTolerance)
     {
-        if(absoluteTolerance < static_cast<T>(0.0f) || relativeTolerance < static_cast<T>(0.0f))
+        if(static_cast<float>(absoluteTolerance) < 0.0f
+           || static_cast<float>(relativeTolerance) < 0.0f)
+        {
+            throw std::invalid_argument("Tolerances must be non-negative");
+        }
+    }
+
+    /// Construct with float tolerances (converted to T internally)
+    /// This is the preferred constructor when tolerances are computed as floats
+    // NOLINTNEXTLINE(readability-redundant-casting) - cast needed for non-float T types
+    CpuFpReferenceValidation(float absoluteTolerance = float(std::numeric_limits<T>::epsilon()),
+                             // NOLINTNEXTLINE(readability-redundant-casting)
+                             float relativeTolerance = float(std::numeric_limits<T>::epsilon()))
+        : _absoluteTolerance(T(absoluteTolerance))
+        , _relativeTolerance(T(relativeTolerance))
+    {
+        if(absoluteTolerance < 0.0f || relativeTolerance < 0.0f)
         {
             throw std::invalid_argument("Tolerances must be non-negative");
         }
@@ -45,11 +63,12 @@ public:
         std::atomic<bool> result(true);
 
         auto validateFunc = [&](const std::vector<int64_t>& indices) {
+            using hipdnn_data_sdk::types::fabs;
             T refValue = refView.getHostValue(indices);
             T implValue = implView.getHostValue(indices);
 
-            T absDiff = std::fabs(implValue - refValue);
-            T threshold = _absoluteTolerance + _relativeTolerance * std::fabs(refValue);
+            T absDiff = fabs(implValue - refValue);
+            T threshold = _absoluteTolerance + _relativeTolerance * fabs(refValue);
 
             if(absDiff > threshold)
             {
@@ -101,10 +120,11 @@ public:
         std::atomic<bool> result(true);
 
         auto validateFunc = [&](const std::vector<int64_t>& indices) {
+            using hipdnn_data_sdk::types::abs;
             T refValue = refView.getHostValue(indices);
             T implValue = implView.getHostValue(indices);
 
-            T absDiff = static_cast<T>(std::abs(implValue - refValue));
+            T absDiff = static_cast<T>(abs(implValue - refValue));
 
             // Integer values ​​must be equal
             if(absDiff > 0)
@@ -139,12 +159,10 @@ inline std::unique_ptr<hipdnn_test_sdk::utilities::IReferenceValidation>
                                                                  relativeTolerance);
     case hipdnn_data_sdk::data_objects::DataType::HALF:
         return std::make_unique<CpuFpReferenceValidation<hipdnn_data_sdk::types::half>>(
-            hipdnn_data_sdk::types::half(absoluteTolerance),
-            hipdnn_data_sdk::types::half(relativeTolerance));
+            absoluteTolerance, relativeTolerance);
     case hipdnn_data_sdk::data_objects::DataType::BFLOAT16:
         return std::make_unique<CpuFpReferenceValidation<hipdnn_data_sdk::types::bfloat16>>(
-            hipdnn_data_sdk::types::bfloat16(absoluteTolerance),
-            hipdnn_data_sdk::types::bfloat16(relativeTolerance));
+            absoluteTolerance, relativeTolerance);
     case hipdnn_data_sdk::data_objects::DataType::DOUBLE:
         return std::make_unique<CpuFpReferenceValidation<double>>(
             static_cast<double>(absoluteTolerance), static_cast<double>(relativeTolerance));

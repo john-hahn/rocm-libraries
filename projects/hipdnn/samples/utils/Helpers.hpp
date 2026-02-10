@@ -17,6 +17,10 @@
 
 using hipdnn_data_sdk::utilities::TensorLayout;
 
+// Use portable custom types instead of HIP types (works with any C++ compiler)
+using hipdnn_frontend::bfloat16;
+using hipdnn_frontend::half;
+
 #define HIP_CHECK(status)                                                                      \
     do                                                                                         \
     {                                                                                          \
@@ -122,10 +126,10 @@ bool run(F&& f)
     bool allPassed = true;
     allPassed &= f.template operator()<float, float>(TensorLayout::NCHW);
     allPassed &= f.template operator()<half, float>(TensorLayout::NCHW);
-    allPassed &= f.template operator()<hip_bfloat16, float>(TensorLayout::NCHW);
+    allPassed &= f.template operator()<bfloat16, float>(TensorLayout::NCHW);
     allPassed &= f.template operator()<float, float>(TensorLayout::NHWC);
     allPassed &= f.template operator()<half, float>(TensorLayout::NHWC);
-    allPassed &= f.template operator()<hip_bfloat16, float>(TensorLayout::NHWC);
+    allPassed &= f.template operator()<bfloat16, float>(TensorLayout::NHWC);
     return allPassed;
 }
 

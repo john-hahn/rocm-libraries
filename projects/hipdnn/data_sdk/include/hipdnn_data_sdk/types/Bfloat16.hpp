@@ -13,8 +13,77 @@
 namespace hipdnn_data_sdk::types
 {
 
+// Forward declarations for cross-type conversions
+// NOLINTBEGIN(readability-identifier-naming) - lowercase to match type definitions
+struct half;
+struct fp8_e4m3;
+struct fp8_e5m2;
+// NOLINTEND(readability-identifier-naming)
+
 namespace detail
 {
+
+// ============================================================================
+// Bfloat16 Bit Layout Constants
+// ============================================================================
+// bfloat16 format: 1 sign bit, 8 exponent bits, 7 mantissa bits
+// Same exponent range as float32, truncated mantissa
+//
+// Bit layout: [S|EEEEEEEE|MMMMMMM]
+//              15 14    7 6     0
+// ============================================================================
+
+/// Sign bit mask (bit 15)
+constexpr uint16_t BFLOAT16_SIGN_MASK = 0x8000;
+
+/// Absolute value mask (all bits except sign)
+constexpr uint16_t BFLOAT16_ABS_MASK = 0x7FFF;
+
+/// Exponent field mask (bits 7-14)
+constexpr uint16_t BFLOAT16_EXP_MASK = 0x7F80;
+
+/// Mantissa field mask (bits 0-6)
+constexpr uint16_t BFLOAT16_MANT_MASK = 0x007F;
+
+/// Exponent bias (same as float32)
+constexpr int BFLOAT16_EXP_BIAS = 127;
+
+// ============================================================================
+// Bfloat16 Special Values (bit patterns)
+// ============================================================================
+
+/// Positive infinity: exponent all 1s, mantissa all 0s
+constexpr uint16_t BFLOAT16_POS_INF = 0x7F80;
+
+/// Negative infinity
+constexpr uint16_t BFLOAT16_NEG_INF = 0xFF80;
+
+/// Quiet NaN (canonical): exponent all 1s, MSB of mantissa set
+constexpr uint16_t BFLOAT16_QNAN = 0x7FC0;
+
+/// Signaling NaN: exponent all 1s, mantissa non-zero but MSB clear
+constexpr uint16_t BFLOAT16_SNAN = 0x7F81;
+
+/// Canonical NaN for min/max operations
+constexpr uint16_t BFLOAT16_CANONICAL_NAN = 0x7FFF;
+
+/// Maximum finite positive value: 0x7F7F = 3.3895e+38
+constexpr uint16_t BFLOAT16_MAX = 0x7F7F;
+
+/// Minimum positive normal value: 2^-126 = 1.175e-38
+constexpr uint16_t BFLOAT16_MIN_NORMAL = 0x0080;
+
+/// Minimum positive denormal value
+constexpr uint16_t BFLOAT16_DENORM_MIN = 0x0001;
+
+/// Maximum finite negative value (lowest): -3.3895e+38
+constexpr uint16_t BFLOAT16_LOWEST = 0xFF7F;
+
+/// Epsilon: smallest value such that 1.0 + epsilon != 1.0 (2^-7)
+constexpr uint16_t BFLOAT16_EPSILON = 0x3C00;
+
+/// Round error (0.5)
+constexpr uint16_t BFLOAT16_ROUND_ERROR = 0x3F00;
 
 // NOLINTBEGIN(readability-identifier-naming) - using snake_case for internal detail functions
 
@@ -85,6 +154,12 @@ struct bfloat16
     {
     }
 
+    // EXPLICIT constructors from other custom types (via float)
+    // These are defined inline but require forward declarations above
+    inline explicit bfloat16(half h) noexcept;
+    inline explicit bfloat16(fp8_e4m3 f) noexcept;
+    inline explicit bfloat16(fp8_e5m2 f) noexcept;
+
     // Factory for raw bits
     // NOLINTNEXTLINE(readability-identifier-naming) - using snake_case for factory function
     static constexpr bfloat16 from_bits(uint16_t bits) noexcept
@@ -109,7 +184,7 @@ struct bfloat16
     // Unary negation - XOR sign bit
     bfloat16 operator-() const noexcept
     {
-        return from_bits(data ^ 0x8000);
+        return from_bits(data ^ detail::BFLOAT16_SIGN_MASK);
     }
 
     // Unary plus
@@ -208,91 +283,88 @@ static_assert(std::is_trivially_copyable_v<bfloat16>, "bfloat16 must be triviall
 static_assert(std::is_standard_layout_v<bfloat16>, "bfloat16 must be standard layout");
 
 // User-defined literal
-inline bfloat16 operator""_bf16(long double val)
+inline bfloat16 operator""_bf(long double val)
 {
     return bfloat16(static_cast<float>(val));
 }
 
-} // namespace hipdnn_data_sdk::types
-
-// std:: namespace math function overloads
-namespace std
-{
+// ============================================================================
+// Math functions for bfloat16 (in hipdnn_data_sdk::types namespace)
+// ============================================================================
+// These are defined in our namespace to enable ADL (Argument Dependent Lookup).
+// Use unqualified calls like: fabs(x), isnan(x), etc.
+// ============================================================================
 
 // Basic math functions
-inline hipdnn_data_sdk::types::bfloat16 abs(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 abs(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16::from_bits(x.data & 0x7FFF);
+    return bfloat16::from_bits(x.data & detail::BFLOAT16_ABS_MASK);
 }
 
-inline hipdnn_data_sdk::types::bfloat16 fabs(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 fabs(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16::from_bits(x.data & 0x7FFF);
+    return bfloat16::from_bits(x.data & detail::BFLOAT16_ABS_MASK);
 }
 
-inline bool isnan(hipdnn_data_sdk::types::bfloat16 x)
+inline bool isnan(bfloat16 x)
 {
-    // NaN: exponent all 1s (0x7F80) and non-zero mantissa
-    return (x.data & 0x7F80) == 0x7F80 && (x.data & 0x007F) != 0;
+    // NaN: exponent all 1s and non-zero mantissa
+    return (x.data & detail::BFLOAT16_EXP_MASK) == detail::BFLOAT16_EXP_MASK
+           && (x.data & detail::BFLOAT16_MANT_MASK) != 0;
 }
 
-inline bool isinf(hipdnn_data_sdk::types::bfloat16 x)
+inline bool isinf(bfloat16 x)
 {
     // Inf: exponent all 1s and zero mantissa
-    return (x.data & 0x7FFF) == 0x7F80;
+    return (x.data & detail::BFLOAT16_ABS_MASK) == detail::BFLOAT16_POS_INF;
 }
 
-inline bool signbit(hipdnn_data_sdk::types::bfloat16 x)
+inline bool signbit(bfloat16 x)
 {
-    return (x.data & 0x8000) != 0;
+    return (x.data & detail::BFLOAT16_SIGN_MASK) != 0;
 }
 
-inline bool isfinite(hipdnn_data_sdk::types::bfloat16 x)
+inline bool isfinite(bfloat16 x)
 {
-    return !std::isnan(x) && !std::isinf(x);
+    return !isnan(x) && !isinf(x);
 }
 
-inline hipdnn_data_sdk::types::bfloat16 copysign(hipdnn_data_sdk::types::bfloat16 x,
-                                                 hipdnn_data_sdk::types::bfloat16 y)
+inline bfloat16 copysign(bfloat16 x, bfloat16 y)
 {
-    uint16_t xBits = x.data & 0x7FFF; // magnitude of x
-    uint16_t ySign = y.data & 0x8000; // sign of y
-    return hipdnn_data_sdk::types::bfloat16::from_bits(xBits | ySign);
+    uint16_t xBits = x.data & detail::BFLOAT16_ABS_MASK;
+    uint16_t ySign = y.data & detail::BFLOAT16_SIGN_MASK;
+    return bfloat16::from_bits(xBits | ySign);
 }
 
 // Min/max with NaN handling
-inline hipdnn_data_sdk::types::bfloat16 max(hipdnn_data_sdk::types::bfloat16 a,
-                                            hipdnn_data_sdk::types::bfloat16 b)
+inline bfloat16 max(bfloat16 a, bfloat16 b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        // Return canonical NaN
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x7FFF);
+        return bfloat16::from_bits(detail::BFLOAT16_CANONICAL_NAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
     return a > b ? a : b;
 }
 
-inline hipdnn_data_sdk::types::bfloat16 min(hipdnn_data_sdk::types::bfloat16 a,
-                                            hipdnn_data_sdk::types::bfloat16 b)
+inline bfloat16 min(bfloat16 a, bfloat16 b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        // Return canonical NaN
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x7FFF);
+        return bfloat16::from_bits(detail::BFLOAT16_CANONICAL_NAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
@@ -300,140 +372,134 @@ inline hipdnn_data_sdk::types::bfloat16 min(hipdnn_data_sdk::types::bfloat16 a,
 }
 
 // Rounding functions
-inline hipdnn_data_sdk::types::bfloat16 floor(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 floor(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::floor(static_cast<float>(x)));
+    return bfloat16(std::floor(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 ceil(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 ceil(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::ceil(static_cast<float>(x)));
+    return bfloat16(std::ceil(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 round(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 round(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::round(static_cast<float>(x)));
+    return bfloat16(std::round(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 trunc(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 trunc(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::trunc(static_cast<float>(x)));
+    return bfloat16(std::trunc(static_cast<float>(x)));
 }
 
 // Exponential and logarithmic functions
-inline hipdnn_data_sdk::types::bfloat16 exp(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 exp(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::exp(static_cast<float>(x)));
+    return bfloat16(std::exp(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 exp2(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 exp2(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::exp2(static_cast<float>(x)));
+    return bfloat16(std::exp2(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 log(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 log(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::log(static_cast<float>(x)));
+    return bfloat16(std::log(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 log2(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 log2(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::log2(static_cast<float>(x)));
+    return bfloat16(std::log2(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 log10(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 log10(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::log10(static_cast<float>(x)));
+    return bfloat16(std::log10(static_cast<float>(x)));
 }
 
 // Power functions
-inline hipdnn_data_sdk::types::bfloat16 sqrt(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 sqrt(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::sqrt(static_cast<float>(x)));
+    return bfloat16(std::sqrt(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 rsqrt(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 rsqrt(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(1.0f / std::sqrt(static_cast<float>(x)));
+    return bfloat16(1.0f / std::sqrt(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 pow(hipdnn_data_sdk::types::bfloat16 x,
-                                            hipdnn_data_sdk::types::bfloat16 y)
+inline bfloat16 pow(bfloat16 x, bfloat16 y)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::pow(static_cast<float>(x), static_cast<float>(y)));
+    return bfloat16(std::pow(static_cast<float>(x), static_cast<float>(y)));
 }
 
 // Trigonometric functions
-inline hipdnn_data_sdk::types::bfloat16 sin(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 sin(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::sin(static_cast<float>(x)));
+    return bfloat16(std::sin(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 cos(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 cos(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::cos(static_cast<float>(x)));
+    return bfloat16(std::cos(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 tan(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 tan(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::tan(static_cast<float>(x)));
+    return bfloat16(std::tan(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 asin(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 asin(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::asin(static_cast<float>(x)));
+    return bfloat16(std::asin(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 acos(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 acos(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::acos(static_cast<float>(x)));
+    return bfloat16(std::acos(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 atan(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 atan(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::atan(static_cast<float>(x)));
+    return bfloat16(std::atan(static_cast<float>(x)));
 }
 
 // Hyperbolic functions
-inline hipdnn_data_sdk::types::bfloat16 sinh(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 sinh(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::sinh(static_cast<float>(x)));
+    return bfloat16(std::sinh(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 cosh(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 cosh(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::cosh(static_cast<float>(x)));
+    return bfloat16(std::cosh(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::bfloat16 tanh(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 tanh(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::tanh(static_cast<float>(x)));
+    return bfloat16(std::tanh(static_cast<float>(x)));
 }
 
 // Error function
-inline hipdnn_data_sdk::types::bfloat16 erf(hipdnn_data_sdk::types::bfloat16 x)
+inline bfloat16 erf(bfloat16 x)
 {
-    return hipdnn_data_sdk::types::bfloat16(std::erf(static_cast<float>(x)));
+    return bfloat16(std::erf(static_cast<float>(x)));
 }
 
 // Floating-point manipulation
-inline hipdnn_data_sdk::types::bfloat16 fmod(hipdnn_data_sdk::types::bfloat16 x,
-                                             hipdnn_data_sdk::types::bfloat16 y)
+inline bfloat16 fmod(bfloat16 x, bfloat16 y)
 {
-    return hipdnn_data_sdk::types::bfloat16(
-        std::fmod(static_cast<float>(x), static_cast<float>(y)));
+    return bfloat16(std::fmod(static_cast<float>(x), static_cast<float>(y)));
 }
 
 // Fused multiply-add
-inline hipdnn_data_sdk::types::bfloat16 fma(hipdnn_data_sdk::types::bfloat16 x,
-                                            hipdnn_data_sdk::types::bfloat16 y,
-                                            hipdnn_data_sdk::types::bfloat16 z)
+inline bfloat16 fma(bfloat16 x, bfloat16 y, bfloat16 z)
 {
-    return hipdnn_data_sdk::types::bfloat16(
-        std::fma(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)));
+    return bfloat16(std::fma(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)));
 }
 
-} // namespace std
+} // namespace hipdnn_data_sdk::types
 
 // std::numeric_limits specialization
 // NOLINTBEGIN(readability-identifier-naming) - standard library names must match exactly
@@ -467,47 +533,56 @@ public:
 
     static constexpr hipdnn_data_sdk::types::bfloat16 min() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x0080); // smallest positive normal
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_MIN_NORMAL);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 lowest() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0xFF7F); // -max
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_LOWEST);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 max() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x7F7F); // largest finite
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_MAX);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 epsilon() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x3C00); // 2^-7
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_EPSILON);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 round_error() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x3F00); // 0.5
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_ROUND_ERROR);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 infinity() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x7F80); // +inf
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_POS_INF);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 quiet_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x7FC0); // quiet NaN
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_QNAN);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 signaling_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x7F81); // signaling NaN
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_SNAN);
     }
 
     static constexpr hipdnn_data_sdk::types::bfloat16 denorm_min() noexcept
     {
-        return hipdnn_data_sdk::types::bfloat16::from_bits(0x0001); // smallest denormal
+        return hipdnn_data_sdk::types::bfloat16::from_bits(
+            hipdnn_data_sdk::types::detail::BFLOAT16_DENORM_MIN);
     }
 };
 // NOLINTEND(readability-identifier-naming)

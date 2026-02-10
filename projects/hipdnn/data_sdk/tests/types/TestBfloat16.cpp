@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-#include <hipdnn_data_sdk/types/Bfloat16.hpp>
+#include <hipdnn_data_sdk/types/All.hpp>
 
 #include <cmath>
 #include <limits>
@@ -20,7 +20,7 @@ protected:
 
     static bool nearEqual(float a, float b, float tol = K_TOLERANCE)
     {
-        return std::fabs(a - b) <= tol;
+        return hipdnn_data_sdk::types::fabs(a - b) <= tol;
     }
 
     static bool nearEqual(bfloat16 a, bfloat16 b, float tol = K_TOLERANCE)
@@ -280,51 +280,51 @@ TEST_F(TestBfloat16, PositiveZero)
 {
     bfloat16 zero = bfloat16::from_bits(0x0000);
     EXPECT_EQ(static_cast<float>(zero), 0.0f);
-    EXPECT_FALSE(std::signbit(zero));
+    EXPECT_FALSE(signbit(zero));
 }
 
 TEST_F(TestBfloat16, NegativeZero)
 {
     bfloat16 negZero = bfloat16::from_bits(0x8000);
     EXPECT_EQ(static_cast<float>(negZero), -0.0f);
-    EXPECT_TRUE(std::signbit(negZero));
+    EXPECT_TRUE(signbit(negZero));
 }
 
 TEST_F(TestBfloat16, PositiveInfinity)
 {
     bfloat16 inf = bfloat16::from_bits(0x7F80);
-    EXPECT_TRUE(std::isinf(inf));
-    EXPECT_FALSE(std::signbit(inf));
-    EXPECT_FALSE(std::isnan(inf));
+    EXPECT_TRUE(isinf(inf));
+    EXPECT_FALSE(signbit(inf));
+    EXPECT_FALSE(isnan(inf));
 }
 
 TEST_F(TestBfloat16, NegativeInfinity)
 {
     bfloat16 negInf = bfloat16::from_bits(0xFF80);
-    EXPECT_TRUE(std::isinf(negInf));
-    EXPECT_TRUE(std::signbit(negInf));
-    EXPECT_FALSE(std::isnan(negInf));
+    EXPECT_TRUE(isinf(negInf));
+    EXPECT_TRUE(signbit(negInf));
+    EXPECT_FALSE(isnan(negInf));
 }
 
 TEST_F(TestBfloat16, QuietNaN)
 {
     bfloat16 nan = bfloat16::from_bits(0x7FC0);
-    EXPECT_TRUE(std::isnan(nan));
-    EXPECT_FALSE(std::isinf(nan));
+    EXPECT_TRUE(isnan(nan));
+    EXPECT_FALSE(isinf(nan));
 }
 
 TEST_F(TestBfloat16, SignalingNaN)
 {
     bfloat16 snan = bfloat16::from_bits(0x7F81);
-    EXPECT_TRUE(std::isnan(snan));
+    EXPECT_TRUE(isnan(snan));
 }
 
 TEST_F(TestBfloat16, IsFinite)
 {
-    EXPECT_TRUE(std::isfinite(bfloat16(1.0f)));
-    EXPECT_TRUE(std::isfinite(bfloat16(0.0f)));
-    EXPECT_FALSE(std::isfinite(bfloat16::from_bits(0x7F80))); // inf
-    EXPECT_FALSE(std::isfinite(bfloat16::from_bits(0x7FC0))); // nan
+    EXPECT_TRUE(isfinite(bfloat16(1.0f)));
+    EXPECT_TRUE(isfinite(bfloat16(0.0f)));
+    EXPECT_FALSE(isfinite(bfloat16::from_bits(0x7F80))); // inf
+    EXPECT_FALSE(isfinite(bfloat16::from_bits(0x7FC0))); // nan
 }
 
 // ============================================================================
@@ -333,130 +333,130 @@ TEST_F(TestBfloat16, IsFinite)
 
 TEST_F(TestBfloat16, Abs)
 {
-    EXPECT_TRUE(nearEqual(std::abs(bfloat16(-5.0f)), bfloat16(5.0f)));
-    EXPECT_TRUE(nearEqual(std::abs(bfloat16(5.0f)), bfloat16(5.0f)));
-    EXPECT_TRUE(nearEqual(std::abs(bfloat16(0.0f)), bfloat16(0.0f)));
+    EXPECT_TRUE(nearEqual(abs(bfloat16(-5.0f)), bfloat16(5.0f)));
+    EXPECT_TRUE(nearEqual(abs(bfloat16(5.0f)), bfloat16(5.0f)));
+    EXPECT_TRUE(nearEqual(abs(bfloat16(0.0f)), bfloat16(0.0f)));
 }
 
 TEST_F(TestBfloat16, Fabs)
 {
-    EXPECT_TRUE(nearEqual(std::fabs(bfloat16(-5.0f)), bfloat16(5.0f)));
-    EXPECT_TRUE(nearEqual(std::fabs(bfloat16(5.0f)), bfloat16(5.0f)));
+    EXPECT_TRUE(nearEqual(fabs(bfloat16(-5.0f)), bfloat16(5.0f)));
+    EXPECT_TRUE(nearEqual(fabs(bfloat16(5.0f)), bfloat16(5.0f)));
 }
 
 TEST_F(TestBfloat16, Max)
 {
     bfloat16 a(1.0f);
     bfloat16 b(2.0f);
-    EXPECT_TRUE(nearEqual(std::max(a, b), b));
-    EXPECT_TRUE(nearEqual(std::max(b, a), b));
+    EXPECT_TRUE(nearEqual(max(a, b), b));
+    EXPECT_TRUE(nearEqual(max(b, a), b));
 }
 
 TEST_F(TestBfloat16, MaxWithNaN)
 {
     bfloat16 a(1.0f);
     bfloat16 nan = bfloat16::from_bits(0x7FC0);
-    EXPECT_TRUE(nearEqual(std::max(a, nan), a));
-    EXPECT_TRUE(nearEqual(std::max(nan, a), a));
-    EXPECT_TRUE(std::isnan(std::max(nan, nan)));
+    EXPECT_TRUE(nearEqual(max(a, nan), a));
+    EXPECT_TRUE(nearEqual(max(nan, a), a));
+    EXPECT_TRUE(isnan(max(nan, nan)));
 }
 
 TEST_F(TestBfloat16, Min)
 {
     bfloat16 a(1.0f);
     bfloat16 b(2.0f);
-    EXPECT_TRUE(nearEqual(std::min(a, b), a));
-    EXPECT_TRUE(nearEqual(std::min(b, a), a));
+    EXPECT_TRUE(nearEqual(min(a, b), a));
+    EXPECT_TRUE(nearEqual(min(b, a), a));
 }
 
 TEST_F(TestBfloat16, MinWithNaN)
 {
     bfloat16 a(1.0f);
     bfloat16 nan = bfloat16::from_bits(0x7FC0);
-    EXPECT_TRUE(nearEqual(std::min(a, nan), a));
-    EXPECT_TRUE(nearEqual(std::min(nan, a), a));
-    EXPECT_TRUE(std::isnan(std::min(nan, nan)));
+    EXPECT_TRUE(nearEqual(min(a, nan), a));
+    EXPECT_TRUE(nearEqual(min(nan, a), a));
+    EXPECT_TRUE(isnan(min(nan, nan)));
 }
 
 TEST_F(TestBfloat16, Sqrt)
 {
     bfloat16 a(4.0f);
-    EXPECT_TRUE(nearEqual(std::sqrt(a), bfloat16(2.0f)));
+    EXPECT_TRUE(nearEqual(sqrt(a), bfloat16(2.0f)));
 
     bfloat16 b(9.0f);
-    EXPECT_TRUE(nearEqual(std::sqrt(b), bfloat16(3.0f)));
+    EXPECT_TRUE(nearEqual(sqrt(b), bfloat16(3.0f)));
 }
 
 TEST_F(TestBfloat16, Exp)
 {
     bfloat16 a(0.0f);
-    EXPECT_TRUE(nearEqual(std::exp(a), bfloat16(1.0f)));
+    EXPECT_TRUE(nearEqual(exp(a), bfloat16(1.0f)));
 
     bfloat16 b(1.0f);
-    EXPECT_TRUE(nearEqual(static_cast<float>(std::exp(b)), std::exp(1.0f), 0.1f));
+    EXPECT_TRUE(nearEqual(static_cast<float>(exp(b)), hipdnn_data_sdk::types::exp(1.0f), 0.1f));
 }
 
 TEST_F(TestBfloat16, Log)
 {
     bfloat16 a(1.0f);
-    EXPECT_TRUE(nearEqual(std::log(a), bfloat16(0.0f)));
+    EXPECT_TRUE(nearEqual(log(a), bfloat16(0.0f)));
 
-    auto e = bfloat16(std::exp(1.0f));
-    EXPECT_TRUE(nearEqual(static_cast<float>(std::log(e)), 1.0f, 0.1f));
+    auto e = bfloat16(hipdnn_data_sdk::types::exp(1.0f));
+    EXPECT_TRUE(nearEqual(static_cast<float>(log(e)), 1.0f, 0.1f));
 }
 
 TEST_F(TestBfloat16, Pow)
 {
     bfloat16 base(2.0f);
     bfloat16 exp(3.0f);
-    EXPECT_TRUE(nearEqual(std::pow(base, exp), bfloat16(8.0f)));
+    EXPECT_TRUE(nearEqual(pow(base, exp), bfloat16(8.0f)));
 }
 
 TEST_F(TestBfloat16, Tanh)
 {
     bfloat16 a(0.0f);
-    EXPECT_TRUE(nearEqual(std::tanh(a), bfloat16(0.0f)));
+    EXPECT_TRUE(nearEqual(tanh(a), bfloat16(0.0f)));
 
     bfloat16 b(1.0f);
-    EXPECT_TRUE(nearEqual(static_cast<float>(std::tanh(b)), std::tanh(1.0f), 0.1f));
+    EXPECT_TRUE(nearEqual(static_cast<float>(tanh(b)), hipdnn_data_sdk::types::tanh(1.0f), 0.1f));
 }
 
 TEST_F(TestBfloat16, Floor)
 {
-    EXPECT_TRUE(nearEqual(std::floor(bfloat16(2.7f)), bfloat16(2.0f)));
-    EXPECT_TRUE(nearEqual(std::floor(bfloat16(-2.3f)), bfloat16(-3.0f)));
+    EXPECT_TRUE(nearEqual(floor(bfloat16(2.7f)), bfloat16(2.0f)));
+    EXPECT_TRUE(nearEqual(floor(bfloat16(-2.3f)), bfloat16(-3.0f)));
 }
 
 TEST_F(TestBfloat16, Ceil)
 {
-    EXPECT_TRUE(nearEqual(std::ceil(bfloat16(2.3f)), bfloat16(3.0f)));
-    EXPECT_TRUE(nearEqual(std::ceil(bfloat16(-2.7f)), bfloat16(-2.0f)));
+    EXPECT_TRUE(nearEqual(ceil(bfloat16(2.3f)), bfloat16(3.0f)));
+    EXPECT_TRUE(nearEqual(ceil(bfloat16(-2.7f)), bfloat16(-2.0f)));
 }
 
 TEST_F(TestBfloat16, Round)
 {
-    EXPECT_TRUE(nearEqual(std::round(bfloat16(2.3f)), bfloat16(2.0f)));
-    EXPECT_TRUE(nearEqual(std::round(bfloat16(2.7f)), bfloat16(3.0f)));
+    EXPECT_TRUE(nearEqual(round(bfloat16(2.3f)), bfloat16(2.0f)));
+    EXPECT_TRUE(nearEqual(round(bfloat16(2.7f)), bfloat16(3.0f)));
 }
 
 TEST_F(TestBfloat16, Copysign)
 {
     bfloat16 a(3.0f);
     bfloat16 b(-1.0f);
-    EXPECT_TRUE(nearEqual(std::copysign(a, b), bfloat16(-3.0f)));
-    EXPECT_TRUE(nearEqual(std::copysign(b, a), bfloat16(1.0f)));
+    EXPECT_TRUE(nearEqual(copysign(a, b), bfloat16(-3.0f)));
+    EXPECT_TRUE(nearEqual(copysign(b, a), bfloat16(1.0f)));
 }
 
 TEST_F(TestBfloat16, Sin)
 {
     bfloat16 a(0.0f);
-    EXPECT_TRUE(nearEqual(std::sin(a), bfloat16(0.0f)));
+    EXPECT_TRUE(nearEqual(sin(a), bfloat16(0.0f)));
 }
 
 TEST_F(TestBfloat16, Cos)
 {
     bfloat16 a(0.0f);
-    EXPECT_TRUE(nearEqual(std::cos(a), bfloat16(1.0f)));
+    EXPECT_TRUE(nearEqual(cos(a), bfloat16(1.0f)));
 }
 
 TEST_F(TestBfloat16, Fma)
@@ -464,7 +464,7 @@ TEST_F(TestBfloat16, Fma)
     bfloat16 a(2.0f);
     bfloat16 b(3.0f);
     bfloat16 c(1.0f);
-    EXPECT_TRUE(nearEqual(std::fma(a, b, c), bfloat16(7.0f)));
+    EXPECT_TRUE(nearEqual(fma(a, b, c), bfloat16(7.0f)));
 }
 
 // ============================================================================
@@ -473,10 +473,10 @@ TEST_F(TestBfloat16, Fma)
 
 TEST_F(TestBfloat16, UserDefinedLiteral)
 {
-    bfloat16 a = 1.5_bf16;
+    bfloat16 a = 1.5_bf;
     EXPECT_TRUE(nearEqual(static_cast<float>(a), 1.5f));
 
-    bfloat16 b = -3.14_bf16;
+    bfloat16 b = -3.14_bf;
     EXPECT_TRUE(nearEqual(static_cast<float>(b), -3.14f, 0.02f));
 }
 
@@ -509,33 +509,33 @@ TEST_F(TestBfloat16, NumericLimitsBasic)
 TEST_F(TestBfloat16, NumericLimitsInfinity)
 {
     bfloat16 inf = std::numeric_limits<bfloat16>::infinity();
-    EXPECT_TRUE(std::isinf(inf));
-    EXPECT_FALSE(std::signbit(inf));
+    EXPECT_TRUE(isinf(inf));
+    EXPECT_FALSE(signbit(inf));
 }
 
 TEST_F(TestBfloat16, NumericLimitsNaN)
 {
     bfloat16 nan = std::numeric_limits<bfloat16>::quiet_NaN();
-    EXPECT_TRUE(std::isnan(nan));
+    EXPECT_TRUE(isnan(nan));
 }
 
 TEST_F(TestBfloat16, NumericLimitsMax)
 {
     bfloat16 maxVal = std::numeric_limits<bfloat16>::max();
-    EXPECT_TRUE(std::isfinite(maxVal));
+    EXPECT_TRUE(isfinite(maxVal));
     EXPECT_GT(static_cast<float>(maxVal), 0.0f);
 }
 
 TEST_F(TestBfloat16, NumericLimitsMin)
 {
     bfloat16 minVal = std::numeric_limits<bfloat16>::min();
-    EXPECT_TRUE(std::isfinite(minVal));
+    EXPECT_TRUE(isfinite(minVal));
     EXPECT_GT(static_cast<float>(minVal), 0.0f);
 }
 
 TEST_F(TestBfloat16, NumericLimitsLowest)
 {
     bfloat16 lowestVal = std::numeric_limits<bfloat16>::lowest();
-    EXPECT_TRUE(std::isfinite(lowestVal));
+    EXPECT_TRUE(isfinite(lowestVal));
     EXPECT_LT(static_cast<float>(lowestVal), 0.0f);
 }

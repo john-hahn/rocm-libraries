@@ -21,27 +21,6 @@ using hipdnn_data_sdk::types::half;
 namespace
 {
 
-// Helper to convert ComputeType to OutputType, going through float for reduced precision types
-template <typename OutputType, typename ComputeType>
-OutputType toOutputType(ComputeType value)
-{
-    // Our custom reduced-precision types have explicit constructors that take float
-    constexpr bool IS_REDUCED_PRECISION_OUTPUT
-        = std::is_same_v<OutputType, bfloat16> || std::is_same_v<OutputType, half>
-          || std::is_same_v<OutputType, fp8_e4m3> || std::is_same_v<OutputType, fp8_e5m2>;
-
-    if constexpr(IS_REDUCED_PRECISION_OUTPUT)
-    {
-        // Reduced precision types need explicit construction from float
-        return OutputType(static_cast<float>(value));
-    }
-    else
-    {
-        // For float, double, int, etc., use direct static_cast
-        return static_cast<OutputType>(value);
-    }
-}
-
 // Mathematical constants
 constexpr float PI = 3.14159265f;
 constexpr float E = 2.71828183f;
@@ -171,17 +150,31 @@ protected:
                 static_cast<Input1Type>(GOLDEN_RATIO), 0, 0, 1, 1); // φ (golden ratio)
 
             input2.setHostValue(static_cast<Input2Type>(LN_2), 0, 0, 0, 0); // ln(2)
-            input2.setHostValue(static_cast<Input2Type>(std::sin(1.0f)), 0, 0, 0, 1);
-            input2.setHostValue(static_cast<Input2Type>(std::cos(1.0f)), 0, 0, 1, 0);
-            input2.setHostValue(static_cast<Input2Type>(std::tan(1.0f)), 0, 0, 1, 1);
+            input2.setHostValue(
+                static_cast<Input2Type>(hipdnn_data_sdk::types::sin(1.0f)), 0, 0, 0, 1);
+            input2.setHostValue(
+                static_cast<Input2Type>(hipdnn_data_sdk::types::cos(1.0f)), 0, 0, 1, 0);
+            input2.setHostValue(
+                static_cast<Input2Type>(hipdnn_data_sdk::types::tan(1.0f)), 0, 0, 1, 1);
 
             expected.setHostValue(static_cast<OutputType>(PI + LN_2), 0, 0, 0, 0); // π + ln(2)
+            expected.setHostValue(static_cast<OutputType>(E + hipdnn_data_sdk::types::sin(1.0f)),
+                                  0,
+                                  0,
+                                  0,
+                                  1); // e + sin(1)
             expected.setHostValue(
-                static_cast<OutputType>(E + std::sin(1.0f)), 0, 0, 0, 1); // e + sin(1)
+                static_cast<OutputType>(SQRT_2 + hipdnn_data_sdk::types::cos(1.0f)),
+                0,
+                0,
+                1,
+                0); // √2 + cos(1)
             expected.setHostValue(
-                static_cast<OutputType>(SQRT_2 + std::cos(1.0f)), 0, 0, 1, 0); // √2 + cos(1)
-            expected.setHostValue(
-                static_cast<OutputType>(GOLDEN_RATIO + std::tan(1.0f)), 0, 0, 1, 1); // φ + tan(1)
+                static_cast<OutputType>(GOLDEN_RATIO + hipdnn_data_sdk::types::tan(1.0f)),
+                0,
+                0,
+                1,
+                1); // φ + tan(1)
         }
 
         CpuReferencePointwiseImpl<OutputType, Input1Type, Input2Type>::pointwiseCompute(
@@ -922,46 +915,54 @@ protected:
 
         // Create expected tensor: sigmoid(x) = 1 / (1 + exp(-x))
         Tensor<OutputType> expected({1, 2, 2, 2});
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(-0.0f))),
-                              0,
-                              0,
-                              0,
-                              0); // sigmoid(0) = 0.5
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(-TEST_VALUE_1))),
-                              0,
-                              0,
-                              0,
-                              1); // sigmoid(1)
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(TEST_VALUE_1))),
-                              0,
-                              0,
-                              1,
-                              0); // sigmoid(-1)
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(-TEST_VALUE_2))),
-                              0,
-                              0,
-                              1,
-                              1); // sigmoid(2)
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(TEST_VALUE_2))),
-                              0,
-                              1,
-                              0,
-                              0); // sigmoid(-2)
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(-TEST_VALUE_5))),
-                              0,
-                              1,
-                              0,
-                              1); // sigmoid(5)
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(TEST_VALUE_5))),
-                              0,
-                              1,
-                              1,
-                              0); // sigmoid(-5)
-        expected.setHostValue(static_cast<OutputType>(1.0f / (1.0f + std::exp(-TEST_VALUE_1_5))),
-                              0,
-                              1,
-                              1,
-                              1); // sigmoid(1.5)
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(-0.0f))),
+            0,
+            0,
+            0,
+            0); // sigmoid(0) = 0.5
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(-TEST_VALUE_1))),
+            0,
+            0,
+            0,
+            1); // sigmoid(1)
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(TEST_VALUE_1))),
+            0,
+            0,
+            1,
+            0); // sigmoid(-1)
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(-TEST_VALUE_2))),
+            0,
+            0,
+            1,
+            1); // sigmoid(2)
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(TEST_VALUE_2))),
+            0,
+            1,
+            0,
+            0); // sigmoid(-2)
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(-TEST_VALUE_5))),
+            0,
+            1,
+            0,
+            1); // sigmoid(5)
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(TEST_VALUE_5))),
+            0,
+            1,
+            1,
+            0); // sigmoid(-5)
+        expected.setHostValue(
+            static_cast<OutputType>(1.0f / (1.0f + hipdnn_data_sdk::types::exp(-TEST_VALUE_1_5))),
+            0,
+            1,
+            1,
+            1); // sigmoid(1.5)
 
         auto tolerance = getMixedTypeTolerance();
         auto validator = createAllCloseValidator<OutputType>(tolerance, tolerance);
@@ -1012,10 +1013,11 @@ protected:
                         // Compute using the template ComputeType
                         auto xCompute = static_cast<ComputeType>(inputVal);
                         auto dyCompute = static_cast<ComputeType>(upstreamGradVal);
-                        auto sigmoid = ComputeType{1} / (ComputeType{1} + std::exp(-xCompute));
+                        auto sigmoid = ComputeType{1}
+                                       / (ComputeType{1} + hipdnn_data_sdk::types::exp(-xCompute));
                         auto localGradient = sigmoid * (ComputeType{1} - sigmoid);
                         auto downstreamGrad = dyCompute * localGradient;
-                        expected.setHostValue(toOutputType<OutputType>(downstreamGrad), n, c, h, w);
+                        expected.setHostValue(static_cast<OutputType>(downstreamGrad), n, c, h, w);
                     }
                 }
             }
@@ -1115,7 +1117,7 @@ protected:
                         auto tanhVal = std::tanh(xCompute);
                         auto localGradient = ComputeType{1} - (tanhVal * tanhVal);
                         auto downstreamGrad = dyCompute * localGradient;
-                        expected.setHostValue(toOutputType<OutputType>(downstreamGrad), n, c, h, w);
+                        expected.setHostValue(static_cast<OutputType>(downstreamGrad), n, c, h, w);
                     }
                 }
             }
@@ -1146,21 +1148,43 @@ protected:
 
         // Create expected tensor: abs(x)
         Tensor<OutputType> expected({1, 2, 2, 2});
+        expected.setHostValue(static_cast<OutputType>(hipdnn_data_sdk::types::abs(TEST_VALUE_1)),
+                              0,
+                              0,
+                              0,
+                              0); // |1| = 1
+        expected.setHostValue(static_cast<OutputType>(hipdnn_data_sdk::types::abs(-TEST_VALUE_2)),
+                              0,
+                              0,
+                              0,
+                              1); // |-2| = 2
         expected.setHostValue(
-            static_cast<OutputType>(std::abs(TEST_VALUE_1)), 0, 0, 0, 0); // |1| = 1
-        expected.setHostValue(
-            static_cast<OutputType>(std::abs(-TEST_VALUE_2)), 0, 0, 0, 1); // |-2| = 2
-        expected.setHostValue(static_cast<OutputType>(std::abs(0.0f)), 0, 0, 1, 0); // |0| = 0
-        expected.setHostValue(
-            static_cast<OutputType>(std::abs(-TEST_VALUE_3)), 0, 0, 1, 1); // |-3| = 3
-        expected.setHostValue(
-            static_cast<OutputType>(std::abs(TEST_VALUE_5)), 0, 1, 0, 0); // |5| = 5
-        expected.setHostValue(
-            static_cast<OutputType>(std::abs(-TEST_VALUE_1_5)), 0, 1, 0, 1); // |-1.5| = 1.5
-        expected.setHostValue(
-            static_cast<OutputType>(std::abs(TEST_VALUE_2_5)), 0, 1, 1, 0); // |2.5| = 2.5
-        expected.setHostValue(
-            static_cast<OutputType>(std::abs(-TEST_VALUE_4)), 0, 1, 1, 1); // |-4| = 4
+            static_cast<OutputType>(hipdnn_data_sdk::types::abs(0.0f)), 0, 0, 1, 0); // |0| = 0
+        expected.setHostValue(static_cast<OutputType>(hipdnn_data_sdk::types::abs(-TEST_VALUE_3)),
+                              0,
+                              0,
+                              1,
+                              1); // |-3| = 3
+        expected.setHostValue(static_cast<OutputType>(hipdnn_data_sdk::types::abs(TEST_VALUE_5)),
+                              0,
+                              1,
+                              0,
+                              0); // |5| = 5
+        expected.setHostValue(static_cast<OutputType>(hipdnn_data_sdk::types::abs(-TEST_VALUE_1_5)),
+                              0,
+                              1,
+                              0,
+                              1); // |-1.5| = 1.5
+        expected.setHostValue(static_cast<OutputType>(hipdnn_data_sdk::types::abs(TEST_VALUE_2_5)),
+                              0,
+                              1,
+                              1,
+                              0); // |2.5| = 2.5
+        expected.setHostValue(static_cast<OutputType>(hipdnn_data_sdk::types::abs(-TEST_VALUE_4)),
+                              0,
+                              1,
+                              1,
+                              1); // |-4| = 4
 
         auto tolerance = getMixedTypeTolerance();
         auto validator = createAllCloseValidator<OutputType>(tolerance, tolerance);
@@ -1254,7 +1278,8 @@ protected:
             for(int n = 0; n < 4; ++n)
             {
                 auto val = static_cast<float>((m - 1) + (n - 2));
-                expected.setHostValue(static_cast<OutputType>(std::abs(val)), m, n);
+                expected.setHostValue(
+                    static_cast<OutputType>(hipdnn_data_sdk::types::abs(val)), m, n);
             }
         }
 

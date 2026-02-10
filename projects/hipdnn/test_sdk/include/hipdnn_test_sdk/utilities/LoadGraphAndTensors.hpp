@@ -143,8 +143,9 @@ struct GraphAndTensorMap
                 [&](auto dataType) {
                     using DataType = decltype(dataType);
 
+                    // Use float tolerances directly - CpuFpReferenceValidation accepts float
                     auto validator = hipdnn_test_sdk::utilities::CpuFpReferenceValidation<DataType>{
-                        static_cast<DataType>(absTolerance), static_cast<DataType>(relTolerance)};
+                        absTolerance, relTolerance};
                     return validator.allClose(*referenceTensorPtr, *tensorMap.at(uid));
                 },
                 [&](int) {

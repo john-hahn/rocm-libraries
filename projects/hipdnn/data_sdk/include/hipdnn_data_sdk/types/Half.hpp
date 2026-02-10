@@ -13,8 +13,92 @@
 namespace hipdnn_data_sdk::types
 {
 
+// Forward declarations for cross-type conversions
+// NOLINTBEGIN(readability-identifier-naming) - lowercase to match type definitions
+struct bfloat16;
+struct fp8_e4m3;
+struct fp8_e5m2;
+// NOLINTEND(readability-identifier-naming)
+
 namespace detail
 {
+
+// ============================================================================
+// Half (FP16) Bit Layout Constants
+// ============================================================================
+// IEEE 754 half-precision format: 1 sign bit, 5 exponent bits, 10 mantissa bits
+//
+// Bit layout: [S|EEEEE|MMMMMMMMMM]
+//              15 14-10 9        0
+// ============================================================================
+
+/// Sign bit mask (bit 15)
+constexpr uint16_t HALF_SIGN_MASK = 0x8000;
+
+/// Absolute value mask (all bits except sign)
+constexpr uint16_t HALF_ABS_MASK = 0x7FFF;
+
+/// Exponent field mask (bits 10-14)
+constexpr uint16_t HALF_EXP_MASK = 0x7C00;
+
+/// Mantissa field mask (bits 0-9)
+constexpr uint16_t HALF_MANT_MASK = 0x03FF;
+
+/// Exponent bias for IEEE 754 half-precision
+constexpr int HALF_EXP_BIAS = 15;
+
+/// Number of mantissa bits
+constexpr int HALF_MANT_BITS = 10;
+
+/// Number of exponent bits
+constexpr int HALF_EXP_BITS = 5;
+
+// ============================================================================
+// Half Special Values (bit patterns)
+// ============================================================================
+
+/// Positive infinity: exponent all 1s, mantissa all 0s
+constexpr uint16_t HALF_POS_INF = 0x7C00;
+
+/// Negative infinity
+constexpr uint16_t HALF_NEG_INF = 0xFC00;
+
+/// Quiet NaN (canonical): exponent all 1s, MSB of mantissa set
+constexpr uint16_t HALF_QNAN = 0x7E00;
+
+/// Signaling NaN: exponent all 1s, mantissa non-zero but MSB clear
+constexpr uint16_t HALF_SNAN = 0x7C01;
+
+/// Canonical NaN for min/max operations
+constexpr uint16_t HALF_CANONICAL_NAN = 0x7FFF;
+
+/// Maximum finite positive value: 0x7BFF = 65504.0
+constexpr uint16_t HALF_MAX = 0x7BFF;
+
+/// Minimum positive normal value: 2^-14 = 6.10e-5
+constexpr uint16_t HALF_MIN_NORMAL = 0x0400;
+
+/// Minimum positive denormal value
+constexpr uint16_t HALF_DENORM_MIN = 0x0001;
+
+/// Maximum finite negative value (lowest): -65504.0
+constexpr uint16_t HALF_LOWEST = 0xFBFF;
+
+/// Epsilon: smallest value such that 1.0 + epsilon != 1.0 (2^-10)
+constexpr uint16_t HALF_EPSILON = 0x1400;
+
+/// Round error (0.5)
+constexpr uint16_t HALF_ROUND_ERROR = 0x3800;
+
+// ============================================================================
+// Half Conversion Constants
+// ============================================================================
+
+/// Rounding threshold for round-to-nearest (half of LSB position)
+constexpr uint32_t HALF_ROUND_THRESHOLD = 0x1000;
+
+/// Mask for remainder bits during rounding (13 LSB of float mantissa)
+constexpr uint32_t HALF_REMAINDER_MASK = 0x1FFF;
 
 // NOLINTBEGIN(readability-identifier-naming,readability-else-after-return,
 //              readability-implicit-bool-conversion,modernize-use-auto,
@@ -175,6 +259,12 @@ struct half
     {
     }
 
+    // EXPLICIT constructors from other custom types (via float)
+    // These are defined inline but require forward declarations above
+    inline explicit half(bfloat16 b) noexcept;
+    inline explicit half(fp8_e4m3 f) noexcept;
+    inline explicit half(fp8_e5m2 f) noexcept;
+
     // Factory for raw bits
     // NOLINTNEXTLINE(readability-identifier-naming) - using snake_case for factory function
     static constexpr half from_bits(uint16_t bits) noexcept
@@ -199,7 +289,7 @@ struct half
     // Unary negation - XOR sign bit
     half operator-() const noexcept
     {
-        return from_bits(data ^ 0x8000);
+        return from_bits(data ^ detail::HALF_SIGN_MASK);
     }
 
     // Unary plus
@@ -304,86 +394,83 @@ inline half operator""_h(long double val)
     return half(static_cast<float>(val));
 }
 
-} // namespace hipdnn_data_sdk::types
-
-// std:: namespace math function overloads
-namespace std
-{
+// ============================================================================
+// Math functions for half (in hipdnn_data_sdk::types namespace)
+// ============================================================================
+// These are defined in our namespace to enable ADL (Argument Dependent Lookup).
+// Use unqualified calls like: fabs(x), isnan(x), etc.
+// ============================================================================
 
 // Basic math functions
-inline hipdnn_data_sdk::types::half abs(hipdnn_data_sdk::types::half x)
+inline half abs(half x)
 {
-    return hipdnn_data_sdk::types::half::from_bits(x.data & 0x7FFF);
+    return half::from_bits(x.data & detail::HALF_ABS_MASK);
 }
 
-inline hipdnn_data_sdk::types::half fabs(hipdnn_data_sdk::types::half x)
+inline half fabs(half x)
 {
-    return hipdnn_data_sdk::types::half::from_bits(x.data & 0x7FFF);
+    return half::from_bits(x.data & detail::HALF_ABS_MASK);
 }
 
-inline bool isnan(hipdnn_data_sdk::types::half x)
+inline bool isnan(half x)
 {
-    // NaN: exponent all 1s (0x7C00) and non-zero mantissa
-    return (x.data & 0x7C00) == 0x7C00 && (x.data & 0x03FF) != 0;
+    // NaN: exponent all 1s and non-zero mantissa
+    return (x.data & detail::HALF_EXP_MASK) == detail::HALF_EXP_MASK
+           && (x.data & detail::HALF_MANT_MASK) != 0;
 }
 
-inline bool isinf(hipdnn_data_sdk::types::half x)
+inline bool isinf(half x)
 {
     // Inf: exponent all 1s and zero mantissa
-    return (x.data & 0x7FFF) == 0x7C00;
+    return (x.data & detail::HALF_ABS_MASK) == detail::HALF_POS_INF;
 }
 
-inline bool signbit(hipdnn_data_sdk::types::half x)
+inline bool signbit(half x)
 {
-    return (x.data & 0x8000) != 0;
+    return (x.data & detail::HALF_SIGN_MASK) != 0;
 }
 
-inline bool isfinite(hipdnn_data_sdk::types::half x)
+inline bool isfinite(half x)
 {
-    return !std::isnan(x) && !std::isinf(x);
+    return !isnan(x) && !isinf(x);
 }
 
-inline hipdnn_data_sdk::types::half copysign(hipdnn_data_sdk::types::half x,
-                                             hipdnn_data_sdk::types::half y)
+inline half copysign(half x, half y)
 {
-    uint16_t xBits = x.data & 0x7FFF; // magnitude of x
-    uint16_t ySign = y.data & 0x8000; // sign of y
-    return hipdnn_data_sdk::types::half::from_bits(xBits | ySign);
+    uint16_t xBits = x.data & detail::HALF_ABS_MASK;
+    uint16_t ySign = y.data & detail::HALF_SIGN_MASK;
+    return half::from_bits(xBits | ySign);
 }
 
 // Min/max with NaN handling
-inline hipdnn_data_sdk::types::half max(hipdnn_data_sdk::types::half a,
-                                        hipdnn_data_sdk::types::half b)
+inline half max(half a, half b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        // Return canonical NaN
-        return hipdnn_data_sdk::types::half::from_bits(0x7FFF);
+        return half::from_bits(detail::HALF_CANONICAL_NAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
     return a > b ? a : b;
 }
 
-inline hipdnn_data_sdk::types::half min(hipdnn_data_sdk::types::half a,
-                                        hipdnn_data_sdk::types::half b)
+inline half min(half a, half b)
 {
-    if(std::isnan(a) && std::isnan(b))
+    if(isnan(a) && isnan(b))
     {
-        // Return canonical NaN
-        return hipdnn_data_sdk::types::half::from_bits(0x7FFF);
+        return half::from_bits(detail::HALF_CANONICAL_NAN);
     }
-    if(std::isnan(a))
+    if(isnan(a))
     {
         return b;
     }
-    if(std::isnan(b))
+    if(isnan(b))
     {
         return a;
     }
@@ -391,139 +478,134 @@ inline hipdnn_data_sdk::types::half min(hipdnn_data_sdk::types::half a,
 }
 
 // Rounding functions
-inline hipdnn_data_sdk::types::half floor(hipdnn_data_sdk::types::half x)
+inline half floor(half x)
 {
-    return hipdnn_data_sdk::types::half(std::floor(static_cast<float>(x)));
+    return half(std::floor(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half ceil(hipdnn_data_sdk::types::half x)
+inline half ceil(half x)
 {
-    return hipdnn_data_sdk::types::half(std::ceil(static_cast<float>(x)));
+    return half(std::ceil(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half round(hipdnn_data_sdk::types::half x)
+inline half round(half x)
 {
-    return hipdnn_data_sdk::types::half(std::round(static_cast<float>(x)));
+    return half(std::round(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half trunc(hipdnn_data_sdk::types::half x)
+inline half trunc(half x)
 {
-    return hipdnn_data_sdk::types::half(std::trunc(static_cast<float>(x)));
+    return half(std::trunc(static_cast<float>(x)));
 }
 
 // Exponential and logarithmic functions
-inline hipdnn_data_sdk::types::half exp(hipdnn_data_sdk::types::half x)
+inline half exp(half x)
 {
-    return hipdnn_data_sdk::types::half(std::exp(static_cast<float>(x)));
+    return half(std::exp(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half exp2(hipdnn_data_sdk::types::half x)
+inline half exp2(half x)
 {
-    return hipdnn_data_sdk::types::half(std::exp2(static_cast<float>(x)));
+    return half(std::exp2(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half log(hipdnn_data_sdk::types::half x)
+inline half log(half x)
 {
-    return hipdnn_data_sdk::types::half(std::log(static_cast<float>(x)));
+    return half(std::log(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half log2(hipdnn_data_sdk::types::half x)
+inline half log2(half x)
 {
-    return hipdnn_data_sdk::types::half(std::log2(static_cast<float>(x)));
+    return half(std::log2(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half log10(hipdnn_data_sdk::types::half x)
+inline half log10(half x)
 {
-    return hipdnn_data_sdk::types::half(std::log10(static_cast<float>(x)));
+    return half(std::log10(static_cast<float>(x)));
 }
 
 // Power functions
-inline hipdnn_data_sdk::types::half sqrt(hipdnn_data_sdk::types::half x)
+inline half sqrt(half x)
 {
-    return hipdnn_data_sdk::types::half(std::sqrt(static_cast<float>(x)));
+    return half(std::sqrt(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half rsqrt(hipdnn_data_sdk::types::half x)
+inline half rsqrt(half x)
 {
-    return hipdnn_data_sdk::types::half(1.0f / std::sqrt(static_cast<float>(x)));
+    return half(1.0f / std::sqrt(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half pow(hipdnn_data_sdk::types::half x,
-                                        hipdnn_data_sdk::types::half y)
+inline half pow(half x, half y)
 {
-    return hipdnn_data_sdk::types::half(std::pow(static_cast<float>(x), static_cast<float>(y)));
+    return half(std::pow(static_cast<float>(x), static_cast<float>(y)));
 }
 
 // Trigonometric functions
-inline hipdnn_data_sdk::types::half sin(hipdnn_data_sdk::types::half x)
+inline half sin(half x)
 {
-    return hipdnn_data_sdk::types::half(std::sin(static_cast<float>(x)));
+    return half(std::sin(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half cos(hipdnn_data_sdk::types::half x)
+inline half cos(half x)
 {
-    return hipdnn_data_sdk::types::half(std::cos(static_cast<float>(x)));
+    return half(std::cos(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half tan(hipdnn_data_sdk::types::half x)
+inline half tan(half x)
 {
-    return hipdnn_data_sdk::types::half(std::tan(static_cast<float>(x)));
+    return half(std::tan(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half asin(hipdnn_data_sdk::types::half x)
+inline half asin(half x)
 {
-    return hipdnn_data_sdk::types::half(std::asin(static_cast<float>(x)));
+    return half(std::asin(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half acos(hipdnn_data_sdk::types::half x)
+inline half acos(half x)
 {
-    return hipdnn_data_sdk::types::half(std::acos(static_cast<float>(x)));
+    return half(std::acos(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half atan(hipdnn_data_sdk::types::half x)
+inline half atan(half x)
 {
-    return hipdnn_data_sdk::types::half(std::atan(static_cast<float>(x)));
+    return half(std::atan(static_cast<float>(x)));
 }
 
 // Hyperbolic functions
-inline hipdnn_data_sdk::types::half sinh(hipdnn_data_sdk::types::half x)
+inline half sinh(half x)
 {
-    return hipdnn_data_sdk::types::half(std::sinh(static_cast<float>(x)));
+    return half(std::sinh(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half cosh(hipdnn_data_sdk::types::half x)
+inline half cosh(half x)
 {
-    return hipdnn_data_sdk::types::half(std::cosh(static_cast<float>(x)));
+    return half(std::cosh(static_cast<float>(x)));
 }
 
-inline hipdnn_data_sdk::types::half tanh(hipdnn_data_sdk::types::half x)
+inline half tanh(half x)
 {
-    return hipdnn_data_sdk::types::half(std::tanh(static_cast<float>(x)));
+    return half(std::tanh(static_cast<float>(x)));
 }
 
 // Error function
-inline hipdnn_data_sdk::types::half erf(hipdnn_data_sdk::types::half x)
+inline half erf(half x)
 {
-    return hipdnn_data_sdk::types::half(std::erf(static_cast<float>(x)));
+    return half(std::erf(static_cast<float>(x)));
 }
 
 // Floating-point manipulation
-inline hipdnn_data_sdk::types::half fmod(hipdnn_data_sdk::types::half x,
-                                         hipdnn_data_sdk::types::half y)
+inline half fmod(half x, half y)
 {
-    return hipdnn_data_sdk::types::half(std::fmod(static_cast<float>(x), static_cast<float>(y)));
+    return half(std::fmod(static_cast<float>(x), static_cast<float>(y)));
 }
 
 // Fused multiply-add
-inline hipdnn_data_sdk::types::half fma(hipdnn_data_sdk::types::half x,
-                                        hipdnn_data_sdk::types::half y,
-                                        hipdnn_data_sdk::types::half z)
+inline half fma(half x, half y, half z)
 {
-    return hipdnn_data_sdk::types::half(
-        std::fma(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)));
+    return half(std::fma(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)));
 }
 
-} // namespace std
+} // namespace hipdnn_data_sdk::types
 
 // std::numeric_limits specialization
 // NOLINTBEGIN(readability-identifier-naming) - standard library names must match exactly
@@ -557,47 +639,52 @@ public:
 
     static constexpr hipdnn_data_sdk::types::half min() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x0400); // smallest positive normal
+        return hipdnn_data_sdk::types::half::from_bits(
+            hipdnn_data_sdk::types::detail::HALF_MIN_NORMAL);
     }
 
     static constexpr hipdnn_data_sdk::types::half lowest() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0xFBFF); // -max
+        return hipdnn_data_sdk::types::half::from_bits(hipdnn_data_sdk::types::detail::HALF_LOWEST);
     }
 
     static constexpr hipdnn_data_sdk::types::half max() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x7BFF); // largest finite (65504)
+        return hipdnn_data_sdk::types::half::from_bits(hipdnn_data_sdk::types::detail::HALF_MAX);
     }
 
     static constexpr hipdnn_data_sdk::types::half epsilon() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x1400); // 2^-10
+        return hipdnn_data_sdk::types::half::from_bits(
+            hipdnn_data_sdk::types::detail::HALF_EPSILON);
     }
 
     static constexpr hipdnn_data_sdk::types::half round_error() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x3800); // 0.5
+        return hipdnn_data_sdk::types::half::from_bits(
+            hipdnn_data_sdk::types::detail::HALF_ROUND_ERROR);
     }
 
     static constexpr hipdnn_data_sdk::types::half infinity() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x7C00); // +inf
+        return hipdnn_data_sdk::types::half::from_bits(
+            hipdnn_data_sdk::types::detail::HALF_POS_INF);
     }
 
     static constexpr hipdnn_data_sdk::types::half quiet_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x7E00); // quiet NaN
+        return hipdnn_data_sdk::types::half::from_bits(hipdnn_data_sdk::types::detail::HALF_QNAN);
     }
 
     static constexpr hipdnn_data_sdk::types::half signaling_NaN() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x7C01); // signaling NaN
+        return hipdnn_data_sdk::types::half::from_bits(hipdnn_data_sdk::types::detail::HALF_SNAN);
     }
 
     static constexpr hipdnn_data_sdk::types::half denorm_min() noexcept
     {
-        return hipdnn_data_sdk::types::half::from_bits(0x0001); // smallest denormal
+        return hipdnn_data_sdk::types::half::from_bits(
+            hipdnn_data_sdk::types::detail::HALF_DENORM_MIN);
     }
 };
 // NOLINTEND(readability-identifier-naming)

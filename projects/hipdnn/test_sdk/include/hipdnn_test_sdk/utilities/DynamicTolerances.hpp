@@ -74,8 +74,10 @@ float calculateConvWrwTolerance(double inputMin,
         numberOfAccumulations *= static_cast<uint64_t>(dyDims[i]); // Spatial dimensions
     }
 
-    double maxAbsInput = std::max(std::abs(inputMin), std::abs(inputMax));
-    double maxAbsDy = std::max(std::abs(dyMin), std::abs(dyMax));
+    using hipdnn_data_sdk::types::abs;
+    using hipdnn_data_sdk::types::max;
+    double maxAbsInput = max(abs(inputMin), abs(inputMax));
+    double maxAbsDy = max(abs(dyMin), abs(dyMax));
 
     // Worst case product magnitude
     double maxProduct = maxAbsInput * maxAbsDy;
@@ -113,9 +115,9 @@ float calculateConvWrwTolerance(double inputMin,
         // We assume NO FMAs are used, so factor is 2n.
         // gamma_2n = sqrt(2n) * u
         // k_sigma = 6.0 for high confidence
+        using hipdnn_data_sdk::types::sqrt;
         constexpr double K_SIGMA = 6.0;
-        double gamma
-            = K_SIGMA * std::sqrt(2.0 * static_cast<double>(numberOfAccumulations)) * epsilon;
+        double gamma = K_SIGMA * sqrt(2.0 * static_cast<double>(numberOfAccumulations)) * epsilon;
         accumulatedTolerance = gamma * sumAbsProductBound;
     }
 
@@ -156,8 +158,9 @@ float calculateConvWrwTolerance(double inputMin,
     if constexpr(getEpsilon<OutputType>() > getEpsilon<ComputeType>())
     {
         // The error is bounded by the precision of the OutputType at the final value.
+        using hipdnn_data_sdk::types::abs;
         double outputEpsilon = getEpsilon<OutputType>();
-        castTolerance = std::abs(maxPossibleOutputValue) * outputEpsilon;
+        castTolerance = abs(maxPossibleOutputValue) * outputEpsilon;
     }
 
     // Total tolerance is the sum of accumulation error and cast error

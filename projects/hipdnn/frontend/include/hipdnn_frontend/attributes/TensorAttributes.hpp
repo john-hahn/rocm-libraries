@@ -24,8 +24,8 @@ public:
     using ValueVariant = std::variant<std::monostate,
                                       double,
                                       float,
-                                      hipdnn_data_sdk::types::half,
-                                      hipdnn_data_sdk::types::bfloat16,
+                                      hipdnn_frontend::half,
+                                      hipdnn_frontend::bfloat16,
                                       uint8_t,
                                       int32_t>;
 
@@ -58,8 +58,8 @@ public:
 
         static_assert(std::disjunction_v<std::is_same<T, float>,
                                          std::is_same<T, double>,
-                                         std::is_same<T, hipdnn_data_sdk::types::half>,
-                                         std::is_same<T, hipdnn_data_sdk::types::bfloat16>,
+                                         std::is_same<T, hipdnn_frontend::half>,
+                                         std::is_same<T, hipdnn_frontend::bfloat16>,
                                          std::is_same<T, uint8_t>,
                                          std::is_same<T, int32_t>>,
                       "Unsupported type for Tensor_attributes::set_value");
@@ -236,13 +236,13 @@ public:
                     return {hipdnn_data_sdk::data_objects::TensorValue::Float64Value,
                             builder.CreateStruct(doubleVal).Union()};
                 }
-                else if constexpr(std::is_same_v<T, hipdnn_data_sdk::types::half>)
+                else if constexpr(std::is_same_v<T, hipdnn_frontend::half>)
                 {
                     hipdnn_data_sdk::data_objects::Float16Value halfVal(static_cast<float>(arg));
                     return {hipdnn_data_sdk::data_objects::TensorValue::Float16Value,
                             builder.CreateStruct(halfVal).Union()};
                 }
-                else if constexpr(std::is_same_v<T, hipdnn_data_sdk::types::bfloat16>)
+                else if constexpr(std::is_same_v<T, hipdnn_frontend::bfloat16>)
                 {
                     hipdnn_data_sdk::data_objects::BFloat16Value bfVal(static_cast<float>(arg));
                     return {hipdnn_data_sdk::data_objects::TensorValue::BFloat16Value,
@@ -324,12 +324,10 @@ public:
                 tensor->set_value(fb->value_as_Float64Value()->value());
                 break;
             case hipdnn_data_sdk::data_objects::TensorValue::Float16Value:
-                tensor->set_value(
-                    hipdnn_data_sdk::types::half(fb->value_as_Float16Value()->value()));
+                tensor->set_value(hipdnn_frontend::half(fb->value_as_Float16Value()->value()));
                 break;
             case hipdnn_data_sdk::data_objects::TensorValue::BFloat16Value:
-                tensor->set_value(
-                    hipdnn_data_sdk::types::bfloat16(fb->value_as_BFloat16Value()->value()));
+                tensor->set_value(hipdnn_frontend::bfloat16(fb->value_as_BFloat16Value()->value()));
                 break;
             case hipdnn_data_sdk::data_objects::TensorValue::Float8Value:
                 tensor->set_value(fb->value_as_Float8Value()->value());

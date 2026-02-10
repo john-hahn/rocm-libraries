@@ -26,7 +26,7 @@ template <typename DataType>
 class IntegrationGpuMatmul : public IntegrationGraphVerificationHarness<DataType, MatmulTestCase>
 {
 protected:
-    void runGraphTest(DataType tolerance) override
+    void runGraphTest(float tolerance) override
     {
         const MatmulTestCase& testCase = this->GetParam();
 
@@ -73,8 +73,8 @@ protected:
 };
 
 using IntegrationGpuMatmulFp32 = IntegrationGpuMatmul<float>;
-using IntegrationGpuMatmulFp16 = IntegrationGpuMatmul<half>;
-using IntegrationGpuMatmulBf16 = IntegrationGpuMatmul<hip_bfloat16>;
+using IntegrationGpuMatmulFp16 = IntegrationGpuMatmul<hipdnn_data_sdk::types::half>;
+using IntegrationGpuMatmulBf16 = IntegrationGpuMatmul<hipdnn_data_sdk::types::bfloat16>;
 
 } // namespace
 
@@ -85,12 +85,12 @@ TEST_P(IntegrationGpuMatmulFp32, Correctness)
 
 TEST_P(IntegrationGpuMatmulFp16, Correctness)
 {
-    runGraphTest(matmul::getTolerance<half>());
+    runGraphTest(matmul::getTolerance<hipdnn_data_sdk::types::half>());
 }
 
 TEST_P(IntegrationGpuMatmulBf16, Correctness)
 {
-    runGraphTest(matmul::getTolerance<hip_bfloat16>());
+    runGraphTest(matmul::getTolerance<hipdnn_data_sdk::types::bfloat16>());
 }
 
 INSTANTIATE_TEST_SUITE_P(IntegrationGpuMatmul,

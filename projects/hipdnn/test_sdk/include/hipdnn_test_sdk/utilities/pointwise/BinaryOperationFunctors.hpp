@@ -24,7 +24,7 @@ struct Add
     OutputType operator()(const X0& x0, const X1& x1) const
     {
         auto result = static_cast<ComputeType>(x0) + static_cast<ComputeType>(x1);
-        return detail::toOutputType<OutputType>(result);
+        return static_cast<OutputType>(result);
     }
 };
 
@@ -35,7 +35,7 @@ struct Subtract
     OutputType operator()(const X0& x0, const X1& x1) const
     {
         auto result = static_cast<ComputeType>(x0) - static_cast<ComputeType>(x1);
-        return detail::toOutputType<OutputType>(result);
+        return static_cast<OutputType>(result);
     }
 };
 
@@ -46,7 +46,7 @@ struct Multiply
     OutputType operator()(const X0& x0, const X1& x1) const
     {
         auto result = static_cast<ComputeType>(x0) * static_cast<ComputeType>(x1);
-        return detail::toOutputType<OutputType>(result);
+        return static_cast<OutputType>(result);
     }
 };
 
@@ -62,7 +62,7 @@ struct ReluBackward
         auto xCompute = static_cast<ComputeType>(x);
         auto dyCompute = static_cast<ComputeType>(dy);
         auto localGradient = (xCompute > ComputeType{0}) ? ComputeType{1} : ComputeType{0};
-        return detail::toOutputType<OutputType>(dyCompute * localGradient);
+        return static_cast<OutputType>(dyCompute * localGradient);
     }
 };
 
@@ -115,7 +115,7 @@ struct ParameterizedReluBackward
             localGradient = ComputeType{1};
         }
 
-        return detail::toOutputType<OutputType>(dyCompute * localGradient);
+        return static_cast<OutputType>(dyCompute * localGradient);
     }
 };
 
@@ -125,12 +125,13 @@ struct SigmoidBackward
     template <typename X, typename Dy>
     OutputType operator()(const X& x, const Dy& dy) const
     {
+        using hipdnn_data_sdk::types::exp;
         auto xCompute = static_cast<ComputeType>(x);
         auto dyCompute = static_cast<ComputeType>(dy);
 
-        ComputeType sigmoidVal = ComputeType{1} / (ComputeType{1} + std::exp(-xCompute));
+        ComputeType sigmoidVal = ComputeType{1} / (ComputeType{1} + exp(-xCompute));
         auto localGradient = sigmoidVal * (ComputeType{1} - sigmoidVal);
-        return detail::toOutputType<OutputType>(dyCompute * localGradient);
+        return static_cast<OutputType>(dyCompute * localGradient);
     }
 };
 
@@ -140,12 +141,13 @@ struct TanhBackward
     template <typename X, typename Dy>
     OutputType operator()(const X& x, const Dy& dy) const
     {
+        using hipdnn_data_sdk::types::tanh;
         auto xCompute = static_cast<ComputeType>(x);
         auto dyCompute = static_cast<ComputeType>(dy);
 
-        ComputeType tanhVal = std::tanh(xCompute);
+        ComputeType tanhVal = tanh(xCompute);
         auto localGradient = ComputeType{1} - (tanhVal * tanhVal);
-        return detail::toOutputType<OutputType>(dyCompute * localGradient);
+        return static_cast<OutputType>(dyCompute * localGradient);
     }
 };
 

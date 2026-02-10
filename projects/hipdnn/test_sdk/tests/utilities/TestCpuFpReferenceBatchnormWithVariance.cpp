@@ -313,8 +313,8 @@ TYPED_TEST(CpuFpReferenceBatchnormWithVariance, EpsilonProducesDifferentResults)
     Tensor<ParamType> meanTensor({1, 3});
     Tensor<ParamType> varianceTensor({1, 3});
 
-    auto min = staticCast<DataType>(-5.0f);
-    auto max = staticCast<DataType>(5.0f);
+    auto min = static_cast<DataType>(-5.0f);
+    auto max = static_cast<DataType>(5.0f);
     inputTensor.fillWithRandomValues(min, max, 42);
 
     for(int i = 0; i < 3; i++)
@@ -344,7 +344,7 @@ TYPED_TEST(CpuFpReferenceBatchnormWithVariance, EpsilonProducesDifferentResults)
                 {
                     auto valSmall = static_cast<double>(outputSmallEps.getHostValue(b, c, h, w));
                     auto valLarge = static_cast<double>(outputLargeEps.getHostValue(b, c, h, w));
-                    if(std::abs(valSmall - valLarge) > 0.001)
+                    if(hipdnn_data_sdk::types::abs(valSmall - valLarge) > 0.001)
                     {
                         foundDifference = true;
                     }
@@ -389,7 +389,8 @@ TYPED_TEST(CpuFpReferenceBatchnormWithVariance, NoNaNOrInfProduced)
         for(int j = 0; j < 2; j++)
         {
             auto val = static_cast<double>(outputTensor.getHostValue(0, 0, i, j));
-            EXPECT_TRUE(std::isfinite(val)) << "NaN/Inf detected at [" << i << "," << j << "]";
+            EXPECT_TRUE(hipdnn_data_sdk::types::isfinite(val))
+                << "NaN/Inf detected at [" << i << "," << j << "]";
         }
     }
 }
@@ -474,7 +475,9 @@ TEST(TestCpuFpReferenceBatchnormWithVarianceFp32, CompareVarianceVsInvVarianceIm
         // Set variance and compute corresponding inv_variance
         auto var = 2.0f + (static_cast<float>(i) * 0.5f);
         varianceTensor.setHostValue(var, 0, i);
-        auto invVar = 1.0f / std::sqrt(var + static_cast<float>(BATCHNORM_DEFAULT_EPSILON));
+        auto invVar
+            = 1.0f
+              / hipdnn_data_sdk::types::sqrt(var + static_cast<float>(BATCHNORM_DEFAULT_EPSILON));
         invVarianceTensor.setHostValue(invVar, 0, i);
     }
 

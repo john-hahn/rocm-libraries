@@ -13,37 +13,6 @@
 namespace hipdnn_test_sdk::utilities::pointwise
 {
 
-namespace detail
-{
-
-// Helper to convert ComputeType to OutputType, going through float for reduced precision types
-template <typename OutputType, typename ComputeType>
-OutputType toOutputType(ComputeType value)
-{
-    using hipdnn_data_sdk::types::bfloat16;
-    using hipdnn_data_sdk::types::fp8_e4m3;
-    using hipdnn_data_sdk::types::fp8_e5m2;
-    using hipdnn_data_sdk::types::half;
-
-    // Our custom reduced-precision types have explicit constructors that take float
-    constexpr bool IS_REDUCED_PRECISION_OUTPUT
-        = std::is_same_v<OutputType, bfloat16> || std::is_same_v<OutputType, half>
-          || std::is_same_v<OutputType, fp8_e4m3> || std::is_same_v<OutputType, fp8_e5m2>;
-
-    if constexpr(IS_REDUCED_PRECISION_OUTPUT)
-    {
-        // Reduced precision types need explicit construction from float
-        return OutputType(static_cast<float>(value));
-    }
-    else
-    {
-        // For float, double, int, etc., use direct static_cast
-        return static_cast<OutputType>(value);
-    }
-}
-
-} // namespace detail
-
 // Unary operations with explicit ComputeType and OutputType
 // ComputeType: The type used for intermediate calculations
 // OutputType: The type returned from the operation
@@ -82,7 +51,7 @@ struct ReluForward
         {
             result = xCompute;
         }
-        return detail::toOutputType<OutputType>(result);
+        return static_cast<OutputType>(result);
     }
 };
 
@@ -92,9 +61,10 @@ struct SigmoidForward
     template <typename X>
     OutputType operator()(const X& x) const
     {
+        using hipdnn_data_sdk::types::exp;
         auto xCompute = static_cast<ComputeType>(x);
-        auto result = ComputeType{1} / (ComputeType{1} + std::exp(-xCompute));
-        return detail::toOutputType<OutputType>(result);
+        auto result = ComputeType{1} / (ComputeType{1} + exp(-xCompute));
+        return static_cast<OutputType>(result);
     }
 };
 
@@ -104,9 +74,10 @@ struct TanhForward
     template <typename X>
     OutputType operator()(const X& x) const
     {
+        using hipdnn_data_sdk::types::tanh;
         auto xCompute = static_cast<ComputeType>(x);
-        auto result = std::tanh(xCompute);
-        return detail::toOutputType<OutputType>(result);
+        auto result = tanh(xCompute);
+        return static_cast<OutputType>(result);
     }
 };
 
@@ -116,7 +87,7 @@ struct Identity
     template <typename X>
     OutputType operator()(const X& x) const
     {
-        return detail::toOutputType<OutputType>(static_cast<ComputeType>(x));
+        return static_cast<OutputType>(static_cast<ComputeType>(x));
     }
 };
 
@@ -126,8 +97,9 @@ struct AbsoluteValue
     template <typename X>
     OutputType operator()(const X& x) const
     {
-        auto result = std::abs(static_cast<ComputeType>(x));
-        return detail::toOutputType<OutputType>(result);
+        using hipdnn_data_sdk::types::abs;
+        auto result = abs(static_cast<ComputeType>(x));
+        return static_cast<OutputType>(result);
     }
 };
 
@@ -138,7 +110,7 @@ struct Negation
     OutputType operator()(const X& x) const
     {
         auto result = -static_cast<ComputeType>(x);
-        return detail::toOutputType<OutputType>(result);
+        return static_cast<OutputType>(result);
     }
 };
 
