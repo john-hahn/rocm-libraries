@@ -21,6 +21,7 @@ add_executable(
     flatbuffer_utilities/TestNodeWrapper.cpp
     flatbuffer_utilities/TestKnobWrapper.cpp
     flatbuffer_utilities/TestKnobSettingWrapper.cpp
+    types/TestBfloat16.cpp
     utilities/TestAllocators.cpp
     utilities/TestCallbackLogger.cpp
     utilities/TestEngineNames.cpp

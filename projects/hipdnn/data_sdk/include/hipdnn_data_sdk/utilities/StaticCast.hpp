@@ -1,10 +1,10 @@
-// Copyright © Advanced Micro Devices, Inc., or its affiliates.
-// SPDX-License-Identifier:  MIT
+// Copyright (c) Advanced Micro Devices, Inc., or its affiliates.
+// SPDX-License-Identifier: MIT
 
 #pragma once
 
-#include <hip/hip_bfloat16.h>
-#include <hip/hip_fp16.h>
+#include <hipdnn_data_sdk/types/Bfloat16.hpp>
+#include <hipdnn_data_sdk/types/Half.hpp>
 
 namespace hipdnn_data_sdk::utilities
 {
@@ -22,67 +22,32 @@ struct CastTo
 };
 
 template <>
-struct CastTo<hip_bfloat16>
+struct CastTo<hipdnn_data_sdk::types::bfloat16>
 {
     template <class T>
-    static hip_bfloat16 from(T value)
+    static hipdnn_data_sdk::types::bfloat16 from(T value)
     {
-        return static_cast<hip_bfloat16>(value);
+        return hipdnn_data_sdk::types::bfloat16(static_cast<float>(value));
     }
 
-    static hip_bfloat16 from(double value)
+    static hipdnn_data_sdk::types::bfloat16 from(hipdnn_data_sdk::types::bfloat16 value)
     {
-        return static_cast<hip_bfloat16>(static_cast<float>(value));
-    }
-
-    static hip_bfloat16 from(int value)
-    {
-        return static_cast<hip_bfloat16>(static_cast<float>(value));
-    }
-
-    static hip_bfloat16 from(unsigned int value)
-    {
-        return static_cast<hip_bfloat16>(static_cast<float>(value));
-    }
-
-    static hip_bfloat16 from(int64_t value)
-    {
-        return static_cast<hip_bfloat16>(static_cast<float>(value));
-    }
-
-    static hip_bfloat16 from(uint64_t value)
-    {
-        return static_cast<hip_bfloat16>(static_cast<float>(value));
+        return value;
     }
 };
 
 template <>
-struct CastTo<half>
+struct CastTo<hipdnn_data_sdk::types::half>
 {
     template <class T>
-    static half from(T value)
+    static hipdnn_data_sdk::types::half from(T value)
     {
-        return static_cast<half>(value);
+        return hipdnn_data_sdk::types::half(static_cast<float>(value));
     }
 
-    static half from(int value)
+    static hipdnn_data_sdk::types::half from(hipdnn_data_sdk::types::half value)
     {
-        return static_cast<half>(static_cast<float>(value));
-    }
-
-    static half from(unsigned int value)
-    {
-        return static_cast<half>(static_cast<float>(value));
-    }
-
-    static half from(int64_t value)
-    {
-        return static_cast<half>(static_cast<float>(value));
-    }
-
-    static half from(uint64_t value)
-    {
-        return static_cast<half>(static_cast<float>(value));
+        return value;
     }
 };
 

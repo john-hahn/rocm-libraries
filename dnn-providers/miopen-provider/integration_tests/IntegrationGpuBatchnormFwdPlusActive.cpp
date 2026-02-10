@@ -28,7 +28,7 @@ template <typename DataType, typename IntermediateType, typename TestCaseType>
 class BatchnormFwdPlusActiv : public IntegrationGraphVerificationHarness<DataType, TestCaseType>
 {
 protected:
-    void runGraphTest(DataType tolerance, const TensorLayout& layout = TensorLayout::NCHW) override
+    void runGraphTest(float tolerance, const TensorLayout& layout = TensorLayout::NCHW) override
     {
         const auto& [testCase, activeCase] = this->GetParam();
 
@@ -117,7 +117,7 @@ using IntegrationGpuBatchnormFwdPlusActivNchwFp32
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
 using IntegrationGpuBatchnormFwdPlusActivNchwBfp16
-    = BatchnormFwdPlusActiv<hip_bfloat16,
+    = BatchnormFwdPlusActiv<bfloat16,
                             float,
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
@@ -133,7 +133,7 @@ using IntegrationGpuBatchnormFwdPlusActivNhwcFp32
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
 using IntegrationGpuBatchnormFwdPlusActivNhwcBfp16
-    = BatchnormFwdPlusActiv<hip_bfloat16,
+    = BatchnormFwdPlusActiv<bfloat16,
                             float,
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
@@ -149,7 +149,7 @@ using IntegrationGpuBatchnormFwdPlusActivNcdhwFp32
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
 using IntegrationGpuBatchnormFwdPlusActivNcdhwBfp16
-    = BatchnormFwdPlusActiv<hip_bfloat16,
+    = BatchnormFwdPlusActiv<bfloat16,
                             float,
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
@@ -165,7 +165,7 @@ using IntegrationGpuBatchnormFwdPlusActivNdhwcFp32
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
 using IntegrationGpuBatchnormFwdPlusActivNdhwcBfp16
-    = BatchnormFwdPlusActiv<hip_bfloat16,
+    = BatchnormFwdPlusActiv<bfloat16,
                             float,
                             std::tuple<BatchnormTestCase, test_activation_common::ActivTestCase>>;
 
@@ -195,7 +195,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(IntegrationGpuBatchnormFwdPlusActivNchwBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NCHW);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NCHW);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -246,7 +246,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(IntegrationGpuBatchnormFwdPlusActivNhwcBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NHWC);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NHWC);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -292,7 +292,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(IntegrationGpuBatchnormFwdPlusActivNcdhwBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NCDHW);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NCDHW);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -326,7 +326,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_P(IntegrationGpuBatchnormFwdPlusActivNdhwcBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NDHWC);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NDHWC);
 }
 
 INSTANTIATE_TEST_SUITE_P(

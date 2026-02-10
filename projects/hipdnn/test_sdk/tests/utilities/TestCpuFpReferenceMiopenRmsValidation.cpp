@@ -6,8 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
-#include <hipdnn_data_sdk/utilities/UtilsBfp16.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsFp16.hpp>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_test_sdk/utilities/CpuFpReferenceMiopenRmsValidation.hpp>
 #include <hipdnn_test_sdk/utilities/TestUtilities.hpp>
 #include <limits>
@@ -15,6 +14,9 @@
 using namespace hipdnn_test_sdk::utilities;
 using namespace hipdnn_data_sdk::utilities;
 using namespace hipdnn_data_sdk::helpers;
+using hipdnn_data_sdk::types::bfloat16;
+using hipdnn_data_sdk::types::half;
+using namespace hipdnn_data_sdk::types; // NOLINT(google-build-using-namespace) - for literals
 
 TEST(TestCpuFpReferenceMiopenRmsValidation, NegativeToleranceThrows)
 {
@@ -63,13 +65,13 @@ TEST(TestCpuFpReferenceMiopenRmsValidation, MiopenRmsCalculation)
 
 TEST(TestCpuFpReferenceMiopenRmsValidationITensorBfp16, BasicUsage)
 {
-    CpuFpReferenceMiopenRmsValidation<hip_bfloat16> validator;
+    CpuFpReferenceMiopenRmsValidation<bfloat16> validator;
 
-    Tensor<hip_bfloat16> tensor1({2, 3, 4});
-    tensor1.fillWithValue(1.0_bf);
+    Tensor<bfloat16> tensor1({2, 3, 4});
+    tensor1.fillWithValue(bfloat16(1.0f));
 
-    Tensor<hip_bfloat16> tensor2({2, 3, 4});
-    tensor2.fillWithValue(1.0_bf);
+    Tensor<bfloat16> tensor2({2, 3, 4});
+    tensor2.fillWithValue(bfloat16(1.0f));
 
     EXPECT_TRUE(validator.allClose(tensor1, tensor2));
 }
@@ -79,10 +81,10 @@ TEST(TestCpuFpReferenceMiopenRmsValidationITensorFp16, BasicUsage)
     CpuFpReferenceMiopenRmsValidation<half> validator;
 
     Tensor<half> tensor1({2, 3, 4});
-    tensor1.fillWithValue(1.0_h);
+    tensor1.fillWithValue(half(1.0f));
 
     Tensor<half> tensor2({2, 3, 4});
-    tensor2.fillWithValue(1.0_h);
+    tensor2.fillWithValue(half(1.0f));
 
     EXPECT_TRUE(validator.allClose(tensor1, tensor2));
 }
@@ -119,13 +121,13 @@ TEST(TestCpuFpReferenceMiopenRmsValidationITensorFp64, BasicUsage)
 
 TEST(TestCpuFpReferenceMiopenRmsValidationITensorBfp16, NotComparable)
 {
-    CpuFpReferenceMiopenRmsValidation<hip_bfloat16> validator;
+    CpuFpReferenceMiopenRmsValidation<bfloat16> validator;
 
-    Tensor<hip_bfloat16> tensor1({2, 3, 4});
-    tensor1.fillWithValue(1.0_bf);
+    Tensor<bfloat16> tensor1({2, 3, 4});
+    tensor1.fillWithValue(bfloat16(1.0f));
 
-    Tensor<hip_bfloat16> tensor2({2, 3, 4});
-    tensor2.fillWithValue(2.0_bf);
+    Tensor<bfloat16> tensor2({2, 3, 4});
+    tensor2.fillWithValue(bfloat16(2.0f));
 
     EXPECT_FALSE(validator.allClose(tensor1, tensor2));
 }
@@ -135,10 +137,10 @@ TEST(TestCpuFpReferenceMiopenRmsValidationITensorFp16, NotComparable)
     CpuFpReferenceMiopenRmsValidation<half> validator;
 
     Tensor<half> tensor1({2, 3, 4});
-    tensor1.fillWithValue(1.0_h);
+    tensor1.fillWithValue(half(1.0f));
 
     Tensor<half> tensor2({2, 3, 4});
-    tensor2.fillWithValue(2.0_h);
+    tensor2.fillWithValue(half(2.0f));
 
     EXPECT_FALSE(validator.allClose(tensor1, tensor2));
 }

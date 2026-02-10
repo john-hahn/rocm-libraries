@@ -160,9 +160,8 @@ if(HIPDNN_GENERATE_SDK_HEADERS)
     add_dependencies(hipdnn_data_sdk generate_hipdnn_data_sdk_headers)
 endif()
 
-# __HIPCC__ is required to use hip/hip_fp16.h and hip/hip_bfloat16.h
-# This allows non-hipcc compilers to use these HIP type headers
-target_compile_definitions(hipdnn_data_sdk INTERFACE __HIPCC__)
+# Custom types in hipdnn_data_sdk/types/ provide portable bfloat16, half, and FP8
+# implementations that do not require the __HIPCC__ macro.
 
 export(TARGETS hipdnn_data_sdk ${_hipdnn_data_sdk_local_export_targets}
        FILE "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}/cmake/hipdnn_data_sdk/hipdnn_data_sdkTargets.cmake"

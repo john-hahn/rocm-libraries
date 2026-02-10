@@ -4,10 +4,10 @@
 #pragma once
 
 #include <algorithm>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_data_sdk/utilities/Constants.hpp>
 #include <hipdnn_data_sdk/utilities/StaticCast.hpp>
 #include <hipdnn_data_sdk/utilities/Tensor.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsBfp16.hpp>
 #include <hipdnn_test_sdk/utilities/CpuFpReferenceUtilities.hpp>
 #include <numeric>
 #include <vector>
@@ -469,9 +469,14 @@ private:
         return sqrtf(value);
     }
 
-    static hip_bfloat16 sqrtInternal(hip_bfloat16 value)
+    static hipdnn_data_sdk::types::bfloat16 sqrtInternal(hipdnn_data_sdk::types::bfloat16 value)
     {
-        return static_cast<hip_bfloat16>(sqrtf(static_cast<float>(value)));
+        return hipdnn_data_sdk::types::bfloat16(sqrtf(static_cast<float>(value)));
+    }
+
+    static hipdnn_data_sdk::types::half sqrtInternal(hipdnn_data_sdk::types::half value)
+    {
+        return hipdnn_data_sdk::types::half(sqrtf(static_cast<float>(value)));
     }
 };
 

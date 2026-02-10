@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 #include <gtest/gtest.h>
-#include <hipdnn_data_sdk/utilities/UtilsBfp16.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsFp16.hpp>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_test_sdk/utilities/NumericLimits.hpp>
 
 using namespace hipdnn_test_sdk::utilities;
+using hipdnn_data_sdk::types::bfloat16;
+using hipdnn_data_sdk::types::half;
 
 TEST(TestNumericLimits, Float)
 {
@@ -27,5 +28,5 @@ TEST(TestNumericLimits, Half)
 TEST(TestNumericLimits, BFloat16)
 {
     // 2^-7 = 0.0078125
-    EXPECT_NEAR(getEpsilon<hip_bfloat16>(), 0.0078125, 1e-9);
+    EXPECT_NEAR(getEpsilon<bfloat16>(), 0.0078125, 1e-9);
 }

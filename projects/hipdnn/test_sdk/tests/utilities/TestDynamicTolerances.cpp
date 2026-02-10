@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <gtest/gtest.h>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_data_sdk/utilities/Tensor.hpp>
 #include <hipdnn_test_sdk/utilities/CpuFpReferenceValidation.hpp>
 #include <hipdnn_test_sdk/utilities/DynamicTolerances.hpp>
@@ -10,6 +11,9 @@
 
 using namespace hipdnn_test_sdk::utilities;
 using namespace hipdnn_test_sdk::utilities::conv;
+using hipdnn_data_sdk::types::bfloat16;
+using hipdnn_data_sdk::types::half;
+using namespace hipdnn_data_sdk::types; // NOLINT(google-build-using-namespace) - for literals
 
 // =================================================================================================
 // TestCalculateConvWrwTolerance
@@ -100,7 +104,7 @@ std::vector<ConvWrwToleranceTestCase>
 // Output Cast Error = N * maxProduct * u_bfp16
 template <>
 std::vector<ConvWrwToleranceTestCase>
-    getConvWrwToleranceTestCases<TypeTriple<hip_bfloat16, float, float>>()
+    getConvWrwToleranceTestCases<TypeTriple<bfloat16, float, float>>()
 {
     return {
         {-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
@@ -122,20 +126,17 @@ std::vector<ConvWrwToleranceTestCase>
 // Error = K * sqrt(2N) * u * (N * maxProduct) = K * N * sqrt(2N) * u * maxProduct
 template <>
 std::vector<ConvWrwToleranceTestCase>
-    getConvWrwToleranceTestCases<TypeTriple<hip_bfloat16, hip_bfloat16, hip_bfloat16>>()
+    getConvWrwToleranceTestCases<TypeTriple<bfloat16, bfloat16, bfloat16>>()
 {
-    // Expected values are pre-rounded to Bfp16 to match implementation behavior
     // 2^-7 = 0.0078125
     return {{-1.0, 1.0, -1.0, 1.0, {}, 0.0, true},
             {-1.0, 1.0, -1.0, 1.0, {1}, 0.0, true},
-            // N=1. Accum = 1. Tol = 6 * 1 * sqrt(2) * 2^-7 = 8.485 * 2^-7 = 0.06629...
-            // Rounded to Bfp16: 0.06640625 (17/256)
-            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 0.06640625},
+            // N=1. Accum = 1. Tol = 6 * 1 * sqrt(2) * 2^-7
+            {-1.0, 1.0, -1.0, 1.0, {1, 1, 1, 1}, 6.0 * std::sqrt(2.0) * std::pow(2.0, -7)},
             // N=2. Accum = 2. Tol = 6 * 2 * sqrt(4) * 2^-7 = 24 * 2^-7 = 0.1875
-            {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 0.1875},
-            // N=10. Accum = 10. Tol = 6 * 10 * sqrt(20) * 2^-7 = 268.328 * 2^-7 = 2.0963...
-            // Rounded to Bfp16: 2.09375 (134/64)
-            {-1.0, 1.0, -1.0, 1.0, {10, 1, 1, 1}, 2.09375}};
+            {-1.0, 1.0, -1.0, 1.0, {2, 1, 1, 1}, 24.0 * std::pow(2.0, -7)},
+            // N=10. Accum = 10. Tol = 6 * 10 * sqrt(20) * 2^-7
+            {-1.0, 1.0, -1.0, 1.0, {10, 1, 1, 1}, 60.0 * std::sqrt(20.0) * std::pow(2.0, -7)}};
 }
 
 // Half / Float / Float (High Precision Compute: Linear)
@@ -196,9 +197,9 @@ protected:
             auto tol = calculateConvWrwTolerance<Out, In, Comp>(
                 params.inputMin, params.inputMax, params.dyMin, params.dyMax, params.dyDims);
 
-            auto expected = hipdnn_data_sdk::utilities::staticCast<Out>(params.expectedTolerance);
+            auto expected = static_cast<float>(params.expectedTolerance);
 
-            EXPECT_NEAR(tol, expected, 1e-5) << "Failed for dims size: " << params.dyDims.size();
+            EXPECT_NEAR(tol, expected, 1e-5f) << "Failed for dims size: " << params.dyDims.size();
         }
     }
 };
@@ -225,7 +226,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::ValuesIn(getConvWrwToleranceTestCases<TypeTriple<float, double, float>>()));
 
 using TestCalculateConvWrwToleranceComputeFloatBfp16
-    = TestCalculateConvWrwTolerance<hip_bfloat16, float, float>;
+    = TestCalculateConvWrwTolerance<bfloat16, float, float>;
 TEST_P(TestCalculateConvWrwToleranceComputeFloatBfp16, VerifyTolerance)
 {
     this->verifyTolerance();
@@ -233,10 +234,10 @@ TEST_P(TestCalculateConvWrwToleranceComputeFloatBfp16, VerifyTolerance)
 INSTANTIATE_TEST_SUITE_P(
     Smoke,
     TestCalculateConvWrwToleranceComputeFloatBfp16,
-    ::testing::ValuesIn(getConvWrwToleranceTestCases<TypeTriple<hip_bfloat16, float, float>>()));
+    ::testing::ValuesIn(getConvWrwToleranceTestCases<TypeTriple<bfloat16, float, float>>()));
 
 using TestCalculateConvWrwToleranceBfp16
-    = TestCalculateConvWrwTolerance<hip_bfloat16, hip_bfloat16, hip_bfloat16>;
+    = TestCalculateConvWrwTolerance<bfloat16, bfloat16, bfloat16>;
 TEST_P(TestCalculateConvWrwToleranceBfp16, VerifyTolerance)
 {
     this->verifyTolerance();
@@ -244,8 +245,7 @@ TEST_P(TestCalculateConvWrwToleranceBfp16, VerifyTolerance)
 INSTANTIATE_TEST_SUITE_P(
     Smoke,
     TestCalculateConvWrwToleranceBfp16,
-    ::testing::ValuesIn(
-        getConvWrwToleranceTestCases<TypeTriple<hip_bfloat16, hip_bfloat16, hip_bfloat16>>()));
+    ::testing::ValuesIn(getConvWrwToleranceTestCases<TypeTriple<bfloat16, bfloat16, bfloat16>>()));
 
 using TestCalculateConvWrwToleranceComputeFloatFp16
     = TestCalculateConvWrwTolerance<half, float, float>;
@@ -296,8 +296,8 @@ TEST(TestCalculateConvWrwTolerance, DetectsFailure)
     auto tol = calculateConvWrwTolerance<half, half, float>(-1.0, 1.0, -1.0, 1.0, dims);
 
     // tol approx 0.1
-    EXPECT_LT(tol, 0.15_h);
-    EXPECT_GT(tol, 0.09_h);
+    EXPECT_LT(tol, 0.15f);
+    EXPECT_GT(tol, 0.09f);
 
     auto validator = hipdnn_test_sdk::utilities::createAllCloseValidator(
         hipdnn_data_sdk::data_objects::DataType::FLOAT, tol, 0);

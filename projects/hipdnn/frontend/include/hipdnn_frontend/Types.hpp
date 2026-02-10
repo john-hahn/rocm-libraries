@@ -7,11 +7,8 @@
 #include <hipdnn_data_sdk/data_objects/data_types_generated.h>
 #include <hipdnn_data_sdk/data_objects/knob_value_generated.h>
 #include <hipdnn_data_sdk/data_objects/pointwise_attributes_generated.h>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_data_sdk/utilities/PointwiseValidation.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsBfp16.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsBfp8.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsFp16.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsFp8.hpp>
 
 #include <bitset>
 #include <ostream>
@@ -21,6 +18,14 @@
 
 namespace hipdnn_frontend
 {
+
+// Type aliases for custom types
+// NOLINTBEGIN(readability-identifier-naming)
+using bfloat16 = hipdnn_data_sdk::types::bfloat16;
+using half = hipdnn_data_sdk::types::half;
+using fp8_e4m3 = hipdnn_data_sdk::types::fp8_e4m3;
+using fp8_e5m2 = hipdnn_data_sdk::types::fp8_e5m2;
+// NOLINTEND(readability-identifier-naming)
 
 enum class ConvolutionMode
 {
@@ -127,11 +132,11 @@ DataType getDataTypeEnumFromType()
     {
         return DataType::FLOAT;
     }
-    else if constexpr(std::is_same_v<T, half>)
+    else if constexpr(std::is_same_v<T, hipdnn_data_sdk::types::half>)
     {
         return DataType::HALF;
     }
-    else if constexpr(std::is_same_v<T, hip_bfloat16>)
+    else if constexpr(std::is_same_v<T, hipdnn_data_sdk::types::bfloat16>)
     {
         return DataType::BFLOAT16;
     }
@@ -151,11 +156,11 @@ DataType getDataTypeEnumFromType()
     {
         return DataType::INT8;
     }
-    else if constexpr(std::is_same_v<T, hip_fp8_e4m3>)
+    else if constexpr(std::is_same_v<T, hipdnn_data_sdk::types::fp8_e4m3>)
     {
         return DataType::FP8_E4M3;
     }
-    else if constexpr(std::is_same_v<T, hip_fp8_e5m2>)
+    else if constexpr(std::is_same_v<T, hipdnn_data_sdk::types::fp8_e5m2>)
     {
         return DataType::FP8_E5M2;
     }

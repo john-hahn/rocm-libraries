@@ -4,9 +4,8 @@
 #pragma once
 
 #include <hipdnn_data_sdk/logging/Logger.hpp>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_data_sdk/utilities/TensorView.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsBfp16.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsFp16.hpp>
 #include <hipdnn_test_sdk/utilities/CpuFpReferenceUtilities.hpp>
 #include <hipdnn_test_sdk/utilities/ReferenceValidationInterface.hpp>
 #include <hipdnn_test_sdk/utilities/VectorLoggingUtils.hpp>
@@ -139,12 +138,13 @@ inline std::unique_ptr<hipdnn_test_sdk::utilities::IReferenceValidation>
         return std::make_unique<CpuFpReferenceValidation<float>>(absoluteTolerance,
                                                                  relativeTolerance);
     case hipdnn_data_sdk::data_objects::DataType::HALF:
-        return std::make_unique<CpuFpReferenceValidation<half>>(
-            static_cast<half>(absoluteTolerance), static_cast<half>(relativeTolerance));
+        return std::make_unique<CpuFpReferenceValidation<hipdnn_data_sdk::types::half>>(
+            hipdnn_data_sdk::types::half(absoluteTolerance),
+            hipdnn_data_sdk::types::half(relativeTolerance));
     case hipdnn_data_sdk::data_objects::DataType::BFLOAT16:
-        return std::make_unique<CpuFpReferenceValidation<hip_bfloat16>>(
-            static_cast<hip_bfloat16>(absoluteTolerance),
-            static_cast<hip_bfloat16>(relativeTolerance));
+        return std::make_unique<CpuFpReferenceValidation<hipdnn_data_sdk::types::bfloat16>>(
+            hipdnn_data_sdk::types::bfloat16(absoluteTolerance),
+            hipdnn_data_sdk::types::bfloat16(relativeTolerance));
     case hipdnn_data_sdk::data_objects::DataType::DOUBLE:
         return std::make_unique<CpuFpReferenceValidation<double>>(
             static_cast<double>(absoluteTolerance), static_cast<double>(relativeTolerance));

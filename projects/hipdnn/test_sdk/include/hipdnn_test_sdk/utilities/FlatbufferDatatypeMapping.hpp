@@ -4,11 +4,13 @@
 #pragma once
 
 #include <hipdnn_data_sdk/data_objects/data_types_generated.h>
-#include <hipdnn_data_sdk/utilities/UtilsBfp16.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsFp16.hpp>
+#include <hipdnn_data_sdk/types/All.hpp>
 
 namespace hipdnn_test_sdk::utilities
 {
+
+using hipdnn_data_sdk::types::bfloat16;
+using hipdnn_data_sdk::types::half;
 
 template <hipdnn_data_sdk::data_objects::DataType DT>
 constexpr auto datatypeToNative()
@@ -33,7 +35,7 @@ constexpr auto datatypeToNative()
     }
     else if constexpr(DT == DataType::BFLOAT16)
     {
-        return hip_bfloat16{};
+        return bfloat16{};
     }
     else
     {
@@ -41,7 +43,7 @@ constexpr auto datatypeToNative()
     }
 }
 
-inline std::variant<float, half, double, int32_t, hip_bfloat16>
+inline std::variant<float, half, double, int32_t, bfloat16>
     datatypeToNativeVariant(hipdnn_data_sdk::data_objects::DataType type)
 {
     using DataType = hipdnn_data_sdk::data_objects::DataType;
@@ -61,7 +63,7 @@ inline std::variant<float, half, double, int32_t, hip_bfloat16>
         return int32_t{};
         break;
     case DataType::BFLOAT16:
-        return hip_bfloat16{};
+        return bfloat16{};
         break;
     default:
         throw std::runtime_error("Error: Invalid type");
@@ -87,7 +89,7 @@ constexpr hipdnn_data_sdk::data_objects::DataType nativeTypeToDataType()
     {
         return hipdnn_data_sdk::data_objects::DataType::INT32;
     }
-    else if constexpr(std::is_same_v<T, hip_bfloat16>)
+    else if constexpr(std::is_same_v<T, bfloat16>)
     {
         return hipdnn_data_sdk::data_objects::DataType::BFLOAT16;
     }

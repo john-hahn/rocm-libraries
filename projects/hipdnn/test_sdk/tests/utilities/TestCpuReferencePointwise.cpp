@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <gtest/gtest.h>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_data_sdk/utilities/Tensor.hpp>
 #include <hipdnn_test_sdk/utilities/CpuFpReferenceValidation.hpp>
 #include <hipdnn_test_sdk/utilities/FlatbufferGraphTestUtils.hpp>
@@ -12,9 +13,34 @@
 using namespace hipdnn_test_sdk::utilities;
 using namespace hipdnn_data_sdk::utilities;
 using namespace hipdnn_data_sdk::data_objects;
+using hipdnn_data_sdk::types::bfloat16;
+using hipdnn_data_sdk::types::fp8_e4m3;
+using hipdnn_data_sdk::types::fp8_e5m2;
+using hipdnn_data_sdk::types::half;
 
 namespace
 {
+
+// Helper to convert ComputeType to OutputType, going through float for reduced precision types
+template <typename OutputType, typename ComputeType>
+OutputType toOutputType(ComputeType value)
+{
+    // Our custom reduced-precision types have explicit constructors that take float
+    constexpr bool IS_REDUCED_PRECISION_OUTPUT
+        = std::is_same_v<OutputType, bfloat16> || std::is_same_v<OutputType, half>
+          || std::is_same_v<OutputType, fp8_e4m3> || std::is_same_v<OutputType, fp8_e5m2>;
+
+    if constexpr(IS_REDUCED_PRECISION_OUTPUT)
+    {
+        // Reduced precision types need explicit construction from float
+        return OutputType(static_cast<float>(value));
+    }
+    else
+    {
+        // For float, double, int, etc., use direct static_cast
+        return static_cast<OutputType>(value);
+    }
+}
 
 // Mathematical constants
 constexpr float PI = 3.14159265f;
@@ -43,7 +69,10 @@ constexpr float BROADCAST_MULTIPLIER_10 = 10.0f;
 
 } // namespace
 
-template <typename Input1Type, typename Input2Type = Input1Type, typename OutputType = Input1Type>
+template <typename Input1Type,
+          typename Input2Type = Input1Type,
+          typename OutputType = Input1Type,
+          typename ComputeType = double>
 class CpuReferencePointwiseFixture : public ::testing::Test
 {
 protected:
@@ -980,13 +1009,13 @@ protected:
                     {
                         auto inputVal = input.getHostValue(n, c, h, w);
                         auto upstreamGradVal = upstreamGrad.getHostValue(n, c, h, w);
-                        auto sigmoid = static_cast<Input1Type>(1.0)
-                                       / (static_cast<Input1Type>(1.0)
-                                          + std::exp(-static_cast<Input1Type>(inputVal)));
-                        auto localGradient = sigmoid * (static_cast<Input1Type>(1.0) - sigmoid);
-                        auto downstreamGrad
-                            = static_cast<Input2Type>(upstreamGradVal) * localGradient;
-                        expected.setHostValue(static_cast<OutputType>(downstreamGrad), n, c, h, w);
+                        // Compute using the template ComputeType
+                        auto xCompute = static_cast<ComputeType>(inputVal);
+                        auto dyCompute = static_cast<ComputeType>(upstreamGradVal);
+                        auto sigmoid = ComputeType{1} / (ComputeType{1} + std::exp(-xCompute));
+                        auto localGradient = sigmoid * (ComputeType{1} - sigmoid);
+                        auto downstreamGrad = dyCompute * localGradient;
+                        expected.setHostValue(toOutputType<OutputType>(downstreamGrad), n, c, h, w);
                     }
                 }
             }
@@ -1068,6 +1097,7 @@ protected:
             PointwiseMode::TANH_BWD, output, input, upstreamGrad);
 
         // Create expected tensor: dx = dy * (1 - tanh²(x))
+        // The functor computes in double (default ComputeType), so we must match that
         Tensor<OutputType> expected({1, 2, 2, 2});
         for(int n = 0; n < 1; ++n)
         {
@@ -1079,11 +1109,13 @@ protected:
                     {
                         auto inputVal = input.getHostValue(n, c, h, w);
                         auto upstreamGradVal = upstreamGrad.getHostValue(n, c, h, w);
-                        auto tanhVal = std::tanh(static_cast<Input1Type>(inputVal));
-                        auto localGradient = static_cast<Input1Type>(1.0) - (tanhVal * tanhVal);
-                        auto downstreamGrad
-                            = static_cast<Input2Type>(upstreamGradVal) * localGradient;
-                        expected.setHostValue(static_cast<OutputType>(downstreamGrad), n, c, h, w);
+                        // Compute using the template ComputeType
+                        auto xCompute = static_cast<ComputeType>(inputVal);
+                        auto dyCompute = static_cast<ComputeType>(upstreamGradVal);
+                        auto tanhVal = std::tanh(xCompute);
+                        auto localGradient = ComputeType{1} - (tanhVal * tanhVal);
+                        auto downstreamGrad = dyCompute * localGradient;
+                        expected.setHostValue(toOutputType<OutputType>(downstreamGrad), n, c, h, w);
                     }
                 }
             }
@@ -1304,7 +1336,7 @@ protected:
     }
 };
 
-using TestTypes = ::testing::Types<float, half, hip_bfloat16, double, int8_t>;
+using TestTypes = ::testing::Types<float, half, bfloat16, double, int8_t>;
 // Empty third argument required for C++17 compatibility with TYPED_TEST_SUITE macro
 TYPED_TEST_SUITE(CpuReferencePointwiseFixture, TestTypes, );
 
@@ -1458,18 +1490,18 @@ TYPED_TEST(CpuReferencePointwiseFixture, UnaryIdentity)
 
 // Mixed-type binary test instantiations
 using TestCpuReferencePointwiseBinaryMixed1Bfp16
-    = CpuReferencePointwiseFixture<float, half, hip_bfloat16>;
+    = CpuReferencePointwiseFixture<float, half, bfloat16>;
 using TestCpuReferencePointwiseBinaryMixed2Bfp16
-    = CpuReferencePointwiseFixture<half, float, hip_bfloat16>;
+    = CpuReferencePointwiseFixture<half, float, bfloat16>;
 using TestCpuReferencePointwiseBinaryMixed1Fp16 = CpuReferencePointwiseFixture<float, float, half>;
 using TestCpuReferencePointwiseBinaryMixed2Fp16
-    = CpuReferencePointwiseFixture<hip_bfloat16, float, half>;
+    = CpuReferencePointwiseFixture<bfloat16, float, half>;
 using TestCpuReferencePointwiseBinaryMixed1Fp32
-    = CpuReferencePointwiseFixture<hip_bfloat16, half, float>;
+    = CpuReferencePointwiseFixture<bfloat16, half, float>;
 using TestCpuReferencePointwiseBinaryMixed3Fp16
-    = CpuReferencePointwiseFixture<float, hip_bfloat16, half>;
+    = CpuReferencePointwiseFixture<float, bfloat16, half>;
 using TestCpuReferencePointwiseBinaryMixed2Fp32
-    = CpuReferencePointwiseFixture<half, hip_bfloat16, float>;
+    = CpuReferencePointwiseFixture<half, bfloat16, float>;
 
 // Test a sample of mixed-type binary operations
 TEST_F(TestCpuReferencePointwiseBinaryMixed1Bfp16, BinaryMixedTypeAddOperation)
@@ -1546,13 +1578,13 @@ TEST_F(TestCpuReferencePointwiseBinaryMixed2Fp32, BinaryMixedTypeSubtractOperati
 using TestCpuReferencePointwiseUnaryMixedFp16 = CpuReferencePointwiseFixture<float, float, half>;
 using TestCpuReferencePointwiseUnaryMixed1Fp32 = CpuReferencePointwiseFixture<half, half, float>;
 using TestCpuReferencePointwiseUnaryMixed1Bfp16
-    = CpuReferencePointwiseFixture<float, float, hip_bfloat16>;
+    = CpuReferencePointwiseFixture<float, float, bfloat16>;
 using TestCpuReferencePointwiseUnaryMixed2Fp32
-    = CpuReferencePointwiseFixture<hip_bfloat16, hip_bfloat16, float>;
+    = CpuReferencePointwiseFixture<bfloat16, bfloat16, float>;
 using TestCpuReferencePointwiseUnaryMixed2Bfp16
-    = CpuReferencePointwiseFixture<half, half, hip_bfloat16>;
+    = CpuReferencePointwiseFixture<half, half, bfloat16>;
 using TestCpuReferencePointwiseUnaryMixed2Fp16
-    = CpuReferencePointwiseFixture<hip_bfloat16, hip_bfloat16, half>;
+    = CpuReferencePointwiseFixture<bfloat16, bfloat16, half>;
 
 // Test a sample of mixed-type unary operations
 TEST_F(TestCpuReferencePointwiseUnaryMixedFp16, UnaryMixedTypeReluForward)

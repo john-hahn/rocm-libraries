@@ -28,7 +28,7 @@ class BatchnormForwardInferenceWithVariance
     : public IntegrationGraphVerificationHarness<DataType, BatchnormTestCase>
 {
 protected:
-    void runGraphTest(DataType tolerance, const TensorLayout& layout = TensorLayout::NCHW) override
+    void runGraphTest(float tolerance, const TensorLayout& layout = TensorLayout::NCHW) override
     {
         const BatchnormTestCase& testCase = this->GetParam();
 
@@ -92,7 +92,7 @@ using IntegrationGpuBatchnormForwardInferenceWithVarianceNchwFp32
     = BatchnormForwardInferenceWithVariance<float, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNchwBfp16
-    = BatchnormForwardInferenceWithVariance<hip_bfloat16, float>;
+    = BatchnormForwardInferenceWithVariance<bfloat16, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNchwFp16
     = BatchnormForwardInferenceWithVariance<half, float>;
@@ -101,7 +101,7 @@ using IntegrationGpuBatchnormForwardInferenceWithVarianceNhwcFp32
     = BatchnormForwardInferenceWithVariance<float, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNhwcBfp16
-    = BatchnormForwardInferenceWithVariance<hip_bfloat16, float>;
+    = BatchnormForwardInferenceWithVariance<bfloat16, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNhwcFp16
     = BatchnormForwardInferenceWithVariance<half, float>;
@@ -110,7 +110,7 @@ using IntegrationGpuBatchnormForwardInferenceWithVarianceNcdhwFp32
     = BatchnormForwardInferenceWithVariance<float, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNcdhwBfp16
-    = BatchnormForwardInferenceWithVariance<hip_bfloat16, float>;
+    = BatchnormForwardInferenceWithVariance<bfloat16, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNcdhwFp16
     = BatchnormForwardInferenceWithVariance<half, float>;
@@ -119,7 +119,7 @@ using IntegrationGpuBatchnormForwardInferenceWithVarianceNdhwcFp32
     = BatchnormForwardInferenceWithVariance<float, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNdhwcBfp16
-    = BatchnormForwardInferenceWithVariance<hip_bfloat16, float>;
+    = BatchnormForwardInferenceWithVariance<bfloat16, float>;
 
 using IntegrationGpuBatchnormForwardInferenceWithVarianceNdhwcFp16
     = BatchnormForwardInferenceWithVariance<half, float>;
@@ -141,7 +141,7 @@ INSTANTIATE_TEST_SUITE_P(Full,
 
 TEST_P(IntegrationGpuBatchnormForwardInferenceWithVarianceNchwBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NCHW);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NCHW);
 }
 
 INSTANTIATE_TEST_SUITE_P(Smoke,
@@ -180,7 +180,7 @@ INSTANTIATE_TEST_SUITE_P(Full,
 
 TEST_P(IntegrationGpuBatchnormForwardInferenceWithVarianceNhwcBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NHWC);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NHWC);
 }
 
 INSTANTIATE_TEST_SUITE_P(Smoke,
@@ -215,7 +215,7 @@ INSTANTIATE_TEST_SUITE_P(Smoke,
 
 TEST_P(IntegrationGpuBatchnormForwardInferenceWithVarianceNcdhwBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NCDHW);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NCDHW);
 }
 
 INSTANTIATE_TEST_SUITE_P(Smoke,
@@ -242,7 +242,7 @@ INSTANTIATE_TEST_SUITE_P(Smoke,
 
 TEST_P(IntegrationGpuBatchnormForwardInferenceWithVarianceNdhwcBfp16, Correctness)
 {
-    runGraphTest(batchnorm::getToleranceInference<hip_bfloat16>(), TensorLayout::NDHWC);
+    runGraphTest(batchnorm::getToleranceInference<bfloat16>(), TensorLayout::NDHWC);
 }
 
 INSTANTIATE_TEST_SUITE_P(Smoke,

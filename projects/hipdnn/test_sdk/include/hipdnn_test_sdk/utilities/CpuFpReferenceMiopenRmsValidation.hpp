@@ -3,13 +3,8 @@
 
 #pragma once
 
-#if defined(__HIP_PLATFORM_AMD__)
-// Need these for the half and bfloat16 types
-#include <hipdnn_data_sdk/utilities/UtilsBfp16.hpp>
-#include <hipdnn_data_sdk/utilities/UtilsFp16.hpp>
-#endif
-
 #include <hipdnn_data_sdk/logging/Logger.hpp>
+#include <hipdnn_data_sdk/types/All.hpp>
 #include <hipdnn_data_sdk/utilities/TensorView.hpp>
 #include <hipdnn_test_sdk/utilities/CpuFpReferenceUtilities.hpp>
 #include <hipdnn_test_sdk/utilities/ReferenceValidationInterface.hpp>
@@ -132,11 +127,12 @@ inline std::unique_ptr<hipdnn_test_sdk::utilities::IReferenceValidation>
     case hipdnn_data_sdk::data_objects::DataType::FLOAT:
         return std::make_unique<CpuFpReferenceMiopenRmsValidation<float>>(relativeTolerance);
     case hipdnn_data_sdk::data_objects::DataType::HALF:
-        return std::make_unique<CpuFpReferenceMiopenRmsValidation<half>>(
-            static_cast<half>(relativeTolerance));
+        return std::make_unique<CpuFpReferenceMiopenRmsValidation<hipdnn_data_sdk::types::half>>(
+            hipdnn_data_sdk::types::half(relativeTolerance));
     case hipdnn_data_sdk::data_objects::DataType::BFLOAT16:
-        return std::make_unique<CpuFpReferenceMiopenRmsValidation<hip_bfloat16>>(
-            static_cast<hip_bfloat16>(relativeTolerance));
+        return std::make_unique<
+            CpuFpReferenceMiopenRmsValidation<hipdnn_data_sdk::types::bfloat16>>(
+            hipdnn_data_sdk::types::bfloat16(relativeTolerance));
     case hipdnn_data_sdk::data_objects::DataType::DOUBLE:
         return std::make_unique<CpuFpReferenceMiopenRmsValidation<double>>(
             static_cast<double>(relativeTolerance));

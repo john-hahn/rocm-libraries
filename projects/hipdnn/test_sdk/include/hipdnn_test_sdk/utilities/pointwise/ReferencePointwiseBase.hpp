@@ -1,4 +1,4 @@
-// Copyright © Advanced Micro Devices, Inc., or its affiliates.
+// Copyright (c) Advanced Micro Devices, Inc., or its affiliates.
 // SPDX-License-Identifier: MIT
 
 #pragma once
@@ -106,22 +106,23 @@ private:
         switch(operation)
         {
         case hipdnn_data_sdk::data_objects::PointwiseMode::RELU_FWD:
-            policy.executeUnary(input, output, pointwise::ReluForward<ComputeType>{});
+            policy.executeUnary(input, output, pointwise::ReluForward<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::SIGMOID_FWD:
-            policy.executeUnary(input, output, pointwise::SigmoidForward<ComputeType>{});
+            policy.executeUnary(
+                input, output, pointwise::SigmoidForward<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::TANH_FWD:
-            policy.executeUnary(input, output, pointwise::TanhForward<ComputeType>{});
+            policy.executeUnary(input, output, pointwise::TanhForward<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::ABS:
-            policy.executeUnary(input, output, pointwise::AbsoluteValue{});
+            policy.executeUnary(input, output, pointwise::AbsoluteValue<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::NEG:
-            policy.executeUnary(input, output, pointwise::Negation{});
+            policy.executeUnary(input, output, pointwise::Negation<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::IDENTITY:
-            policy.executeUnary(input, output, pointwise::Identity{});
+            policy.executeUnary(input, output, pointwise::Identity<ComputeType, OutputType>{});
             break;
         default:
             throw std::runtime_error("Unsupported unary pointwise operation: "
@@ -145,12 +146,12 @@ private:
         switch(operation)
         {
         case hipdnn_data_sdk::data_objects::PointwiseMode::RELU_FWD:
-            policy.executeUnary(
-                input,
-                output,
-                pointwise::ReluForward<ComputeType>{static_cast<ComputeType>(lowerClip),
-                                                    static_cast<ComputeType>(upperClip),
-                                                    static_cast<ComputeType>(lowerSlope)});
+            policy.executeUnary(input,
+                                output,
+                                pointwise::ReluForward<ComputeType, OutputType>{
+                                    static_cast<ComputeType>(lowerClip),
+                                    static_cast<ComputeType>(upperClip),
+                                    static_cast<ComputeType>(lowerSlope)});
             break;
         default:
             throw std::runtime_error("Unsupported parameterized pointwise operation: "
@@ -172,25 +173,28 @@ private:
         switch(operation)
         {
         case hipdnn_data_sdk::data_objects::PointwiseMode::ADD:
-            policy.executeBinaryBroadcast(input1, input2, output, pointwise::Add{});
+            policy.executeBinaryBroadcast(
+                input1, input2, output, pointwise::Add<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::SUB:
-            policy.executeBinaryBroadcast(input1, input2, output, pointwise::Subtract{});
+            policy.executeBinaryBroadcast(
+                input1, input2, output, pointwise::Subtract<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::MUL:
-            policy.executeBinaryBroadcast(input1, input2, output, pointwise::Multiply{});
+            policy.executeBinaryBroadcast(
+                input1, input2, output, pointwise::Multiply<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::RELU_BWD:
             policy.executeBinaryBroadcast(
-                input1, input2, output, pointwise::ReluBackward<ComputeType>{});
+                input1, input2, output, pointwise::ReluBackward<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::SIGMOID_BWD:
             policy.executeBinaryBroadcast(
-                input1, input2, output, pointwise::SigmoidBackward<ComputeType>{});
+                input1, input2, output, pointwise::SigmoidBackward<ComputeType, OutputType>{});
             break;
         case hipdnn_data_sdk::data_objects::PointwiseMode::TANH_BWD:
             policy.executeBinaryBroadcast(
-                input1, input2, output, pointwise::TanhBackward<ComputeType>{});
+                input1, input2, output, pointwise::TanhBackward<ComputeType, OutputType>{});
             break;
         default:
             throw std::runtime_error("Unsupported binary pointwise operation: "
@@ -215,13 +219,14 @@ private:
         switch(operation)
         {
         case hipdnn_data_sdk::data_objects::PointwiseMode::RELU_BWD:
-            policy.executeBinaryBroadcast(input1,
-                                          input2,
-                                          output,
-                                          pointwise::ParameterizedReluBackward<ComputeType>{
-                                              static_cast<ComputeType>(lowerClip),
-                                              static_cast<ComputeType>(upperClip),
-                                              static_cast<ComputeType>(lowerSlope)});
+            policy.executeBinaryBroadcast(
+                input1,
+                input2,
+                output,
+                pointwise::ParameterizedReluBackward<ComputeType, OutputType>{
+                    static_cast<ComputeType>(lowerClip),
+                    static_cast<ComputeType>(upperClip),
+                    static_cast<ComputeType>(lowerSlope)});
             break;
         default:
             throw std::runtime_error("Unsupported parameterized binary pointwise operation: "
