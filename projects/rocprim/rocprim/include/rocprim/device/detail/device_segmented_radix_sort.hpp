@@ -947,8 +947,9 @@ void segmented_sort_large(
                                               storage.long_radix_helper);
 
                 segment_to_output = !segment_to_output;
-                ::rocprim::syncthreads();
             }
+            // No need for '::rocprim::syncthreads();' here, since
+            // this is already done by the previous sort.
         }
         else
         {
@@ -965,7 +966,8 @@ void segmented_sort_large(
                                             end_bit,
                                             storage.single_block_helper);
         }
-        ::rocprim::syncthreads();
+        // No need for '::rocprim::syncthreads();' here, since
+        // this is already done by the previous sorts.
     }
 }
 
