@@ -2316,6 +2316,8 @@ def _get_schedule_128x192x32_TF32(kernel, useLDSTr, TLDS):
         return False, None
     elif isTN(kernel) and not useLDSTr and TLDS==1:
         kernel["UsePLRPack"] = True
+        kernel["UseMFMAF32XEmulation"] = False
+        kernel["UseDot2F32XEmulation"] = False
         syncTable = [
             5,  SWaitCnt(dscnt=1, vlcnt=-1, vscnt=-1, comment="Before PackA0. Wait for all LRA0. Skip 1*LRB0.") ,
             17, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Before PackB0. Wait for all prior LRB0 for PackB0.") ,
@@ -2380,6 +2382,7 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
     if isTN(kernel) and not useLDSTr and TLDS==1:
         kernel["UsePLRPack"] = True
         kernel["UseMFMAF32XEmulation"] = True
+        kernel["UseDot2F32XEmulation"] = False
 
         # Used the following constrains to create schedule
         #  - LRA0 + PACKA0 needs to be done before 1/4 MFMAs
@@ -2512,6 +2515,7 @@ def _get_schedule_192x256x32_TF32(kernel, useLDSTr, TLDS):
     elif isNN(kernel) and TLDS==1:
         kernel["UsePLRPack"] = True
         kernel["UseMFMAF32XEmulation"] = True
+        kernel["UseDot2F32XEmulation"] = False
 
         numLrReadA = 24
         numLrReadB = 8
@@ -2708,6 +2712,8 @@ def _get_schedule_256x192x32_TF32(kernel, useLDSTr, TLDS):
     nglshift = nllshift = 0 # vmcnt shift for ngl and nll
     if isTN(kernel) and not useLDSTr and TLDS == 1:
         kernel["UsePLRPack"] = True
+        kernel["UseMFMAF32XEmulation"] = False
+        kernel["UseDot2F32XEmulation"] = False
         numPackInstr = 24 
         numPackIndices = numPackInstr // 2 # Assign 2 pack instructions per mfma index
         
@@ -2987,6 +2993,7 @@ def _get_schedule_256x256x32_TF32(kernel, useLDSTr, TLDS):
     if isTN(kernel) and not useLDSTr and TLDS==1:
         kernel["UsePLRPack"] = True
         kernel["UseMFMAF32XEmulation"] = True
+        kernel["UseDot2F32XEmulation"] = False
         # This schedule follows similar pattern as 192x256x32 TF32 schedule
 
         # LRA0 + GRIncA
@@ -3125,6 +3132,8 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
     if isTN(kernel) and useLDSTr and TLDS==1:
 
         kernel["UsePLRPack"] = True
+        kernel["UseMFMAF32XEmulation"] = False
+        kernel["UseDot2F32XEmulation"] = False
         # Used the following constrains to create schedule
         #  - LRA0 + PACKA0 needs to be done before 1/4 MFMAs - index 18
         #  - LBR0 + PACKB0 needs to be done before 2/4 MFMAs - index 36
@@ -3190,9 +3199,11 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
 
         nglshift = nllshift = 10 # vmcnt shift for ngl and nll
     elif isNT(kernel) and not useLDSTr and TLDS==0:
+        kernel["SwapGlobalReadOrder"] = False
         kernel["UsePLRPack"] = True
         kernel["UseMFMAF32XEmulation"] = True
-        
+        kernel["UseDot2F32XEmulation"] = False
+        print('kernel', kernel)
         syncTable = [
             -1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s for next iteration"),
             
@@ -3482,8 +3493,7 @@ def _get_schedule_128x128x32_TF32_plr1(kernel, useLDSTr, TLDS):
 )
 def _get_schedule_128x128x64_TF32(kernel, useLDSTr, TLDS):
     kernel["MfmaInitCVgprs"] = True
-    kernel["UseMFMAF32XEmulation"] = True
-    kernel["UsePLRPack"] = True
+
     n_mfma = 96
     optSchedule = dict()
     nglshift = nllshift = 0
@@ -3493,6 +3503,10 @@ def _get_schedule_128x128x64_TF32(kernel, useLDSTr, TLDS):
     gr_inc_step = 1
 
     if isTN(kernel) and not useLDSTr and TLDS==1:
+        kernel["UseMFMAF32XEmulation"] = True
+        kernel["UseDot2F32XEmulation"] = False
+        kernel["UsePLRPack"] = True
+
         offset=[0,0,1,1, 8,8,  9, 9,10,10, 
                 2,2,3,3, 8,8, 11,11,12,12,
                 4,4,5,5, 8,8, 13,13,14,14, 
@@ -3580,6 +3594,7 @@ def _get_schedule_128x256x32_TF32(kernel, useLDSTr, TLDS):
     if isTN(kernel) and not useLDSTr and TLDS==1:
         kernel["UsePLRPack"] = True
         kernel["UseMFMAF32XEmulation"] = True
+        kernel["UseDot2F32XEmulation"] = False
 
         # LRA0 + GRIncA
         lra0 = create_range(min_val = 0, num = 4, step = 1, repeat = 1)
@@ -3721,7 +3736,9 @@ def _get_schedule_128x256x32_TF32(kernel, useLDSTr, TLDS):
         ]
 
         syncCode = syncTable[1::2]
+        
         optSchedule = {
+
             'SYNC': [syncTable[::2]],
 
             'GRIncA': [grIncA],

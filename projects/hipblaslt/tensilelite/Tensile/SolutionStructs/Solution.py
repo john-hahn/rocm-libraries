@@ -412,10 +412,23 @@ class Solution(collections.abc.Mapping):
       state["reorderGRInstForDTVA"] = False
       state["reorderGRInstForDTVB"] = False
 
-    state["UsePLRPack"] = False
-    state["SwapGlobalReadOrder"] = False
-    state["MfmaInitCVgprs"] = False
+    # F32XEmulation related initialization
+    state["UseDot2F32XEmulation"] = False
     state["UseMFMAF32XEmulation"] = False
+    state["UseDirect32XEmulation"] = False # directly local read into temporary vgpr
+    #ignore the F32 xDL MathOp by default.
+    #enable F32 xDL MathOp only when the input type is f32.
+    if state["UseF32XEmulation"]:
+      state["UseF32XEmulation"] = True
+      state["UseDirect32XEmulation"] = True
+      # select conversion logic for X3
+      # (1) UseMFMAF32XEmulation = True
+      # (2) UseDot2F32XEmulation = True (set (1) to False)
+      # (3) cvt + sub  (set both (1) and (2) False)
+      state["UseMFMAF32XEmulation"] = True # enable MFMA version by default
+
+    state["UsePLRPack"] = False
+    state["MfmaInitCVgprs"] = False
 
     # done
     state["AssignedProblemIndependentDerivedParameters"] = True
@@ -930,8 +943,6 @@ class Solution(collections.abc.Mapping):
     # the keys "EnableF32XdlMathOp" and "F32XdlMathOp".
     state["EnableF32XdlMathOp"] = False
     state["UseF32XEmulation"] = False # enable emulation for missing hardware support
-    state["UseDot2F32XEmulation"] = False
-    state["UseDirect32XEmulation"] = False # directly local read into temporary vgpr
     #ignore the F32 xDL MathOp by default.
     #enable F32 xDL MathOp only when the input type is f32.
     if "F32XdlMathOp" in state["ProblemType"] \
@@ -940,19 +951,13 @@ class Solution(collections.abc.Mapping):
       state["EnableF32XdlMathOp"] = True
       if isaInfoMap[isa].archCaps["HasF32XEmulation"]:
         state["UseF32XEmulation"] = True
-        state["UseDirect32XEmulation"] = True
+
 
     # initial info to be exported for solution prediction
     state["CUOccupancy"]            = -1
     state["MathClocksUnrolledLoop"] = 0
 
     Solution.assignProblemIndependentDerivedParameters(state, printRejectionReason, isaInfoMap)
-
-    if state["UseDirect32XEmulation"] == True:
-      #   Turn off Direct32X for the following kernels:
-      #   Cijk_Ailk_Bjlk_S_MX_B_Bias_HA_S_SAV_UserArgs_MT16x16x512_MI16x16x1
-      if (state["MacroTile0"] == 16 and state["MacroTile1"] == 16 and state["DepthU"] == 512):
-        state["UseDirect32XEmulation"] = False
 
     if "AssignedDerivedParameters" in state:
       if state["AssignedDerivedParameters"]:
@@ -1391,6 +1396,112 @@ class Solution(collections.abc.Mapping):
     if state["enableLDSTrB"] or state["enableGLTrB"]:
       state["VectorWidthB"] = 1
 
+    if state["ScheduleIterAlg"] == 2:
+      state["ExpandPointerSwap"] = 1
+      print2("\nSet SIA=2, force ExpandPointerSwap=1")
+
+    if state["ExpandPointerSwap"] == 1:
+      # Pointer swap only used if PGR==1 or (PGR>1 and double/double complex) - so set ExpandPointerSwap=0 here
+      # So far, EPS=1 and PGR>1 works only with double/double complex.
+      #if not (bufferLoad and state["PrefetchGlobalRead"] == 1):
+      if not (bufferLoad and ( state["PrefetchGlobalRead"] == 1 \
+              or (state["PrefetchGlobalRead"] > 1 and \
+                  (state["ProblemType"]["DataType"].isDouble() or state["ProblemType"]["DataType"].isDoubleComplex()))
+              or (state["ProblemType"]["Sparse"] and state["PrefetchGlobalRead"] > 0))):
+        state["ExpandPointerSwap"] = 0
+
+    #################################################################
+    # ForceUnrollSubIter requirements
+    # - Needs PGR > 0, double buffer
+    # - MIWaveTile must be even and larger than 2
+    # - TLU{A,B} cases only supported if using LdsTR or if VPerm not needed (size{A,B} >= 4)
+    #
+    # - Not supported for mixed precision cases currently
+    TLUA = state["ProblemType"]["TLUA"]
+    TLUB = state["ProblemType"]["TLUB"]
+    def doSubIterSetting():
+      sizeDataTypeA = state["ProblemType"]["DataTypeA"].numBytes()
+      sizeDataTypeB = state["ProblemType"]["DataTypeB"].numBytes()
+      sizeDataType = state["ProblemType"]["DataType"].numBytes()
+      if (
+        not state["ProblemType"]["Sparse"] and
+        state["EnableMatrixInstruction"] and not state["ExpandPointerSwap"] and
+        state["DepthU"] == state["MatrixInstK"] and state["PrefetchGlobalRead"] and not state["1LDSBuffer"]
+        and (state["MIWaveTile"][0] > 2  and state["MIWaveTile"][1] > 2)
+        and (state["MIWaveTile"][0] % 2 == 0 and state["MIWaveTile"][1] % 2 == 0)
+        and (sizeDataTypeA == sizeDataType) and (sizeDataTypeB == sizeDataType)
+        and ((TLUA == False or state["enableLDSTrA"] or sizeDataTypeA >= 4) and (TLUB == False or state["enableLDSTrB"] or sizeDataTypeB >= 4) )
+      ):
+        state["ForceUnrollSubIter"] = True
+        state["numSubTiles"] = 2
+        state["PrefetchLocalRead"] = 0 if state["ClusterLocalRead"] == 0 else state["PrefetchLocalRead"]
+        # disable TailloopInNll
+        state["TailloopInNll"] = False
+      else:
+        state["ForceUnrollSubIter"] = False
+        state["numSubTiles"] = 1
+
+    isSubIterSettingDone = False
+    # UseF32XEmulation case, need to finish SubIter setting before VectorWidth
+    # Here, DepthU is not finalized but we need to finish VectorWidth adjustment before DepthU
+    if state["UseF32XEmulation"]:
+      doSubIterSetting()
+      isSubIterSettingDone = True
+
+    if state["VectorWidthA"] == -1:
+      if state["EnableMatrixInstruction"]:
+        regPerElem = state["ProblemType"]["DataType"].numRegisters()
+        optVW = int(4 // regPerElem)
+        while 1:
+          if state["MIWaveTile"][0] % optVW == 0:
+            state["VectorWidthA"] = optVW
+            break
+          else:
+            optVW //= 2
+        if state["ProblemType"]["Sparse"]:
+          state["VectorWidthA"] = 1
+      else:
+        state["VectorWidthA"] = 1
+    # VW adjustment for F32XEmu + TLU + SubIter
+    # -> this logic does not work. Reject the kernel so far.
+    if state["UseF32XEmulation"]:
+      if TLUA and state["numSubTiles"] > 1 and state["MIWaveTile"][0] % (state["VectorWidthA"] * state["numSubTiles"]) != 0:
+        # reject(state, printRejectionReason, "F32XEmulation + SubTiles requires MIWaveTile[0](%u) is multiple of VectorWidthA(%u) * 2"%(state["MIWaveTile"][0], state["VectorWidthA"]))
+        # return
+        # Many existing kernels are rejected with this condition.
+        # So far, continue with VectorWidthA //=state["numSubTiles"]
+        state["VectorWidthA"] //= state["numSubTiles"]
+        if state["SourceSwap"] and state["StoreVectorWidth"] > state["VectorWidthA"]:
+          # need to adjust StoreVectorWidth in SourceSwap case
+          state["StoreVectorWidth"] //= state["numSubTiles"]
+
+    if state["VectorWidthB"] == -1:
+      if state["EnableMatrixInstruction"]:
+        regPerElem = state["ProblemType"]["DataType"].numRegisters()
+        optVW = int(4 // regPerElem)
+        while 1:
+          if state["MIWaveTile"][1] % optVW == 0:
+            state["VectorWidthB"] = optVW
+            break
+          else:
+            optVW //= 2
+        if state["ProblemType"]["Sparse"]:
+          state["VectorWidthB"] = 1
+      else:
+        state["VectorWidthB"] = 1
+    # VW adjustment for F32XEmu + TLU + SubIter
+    # -> this logic does not work. Reject the kernel so far.
+    if state["UseF32XEmulation"]:
+      if TLUB and state["numSubTiles"] > 1 and state["MIWaveTile"][1] % (state["VectorWidthB"] * state["numSubTiles"]) != 0:
+        # reject(state, printRejectionReason, "F32XEmulation + SubTiles requires MIWaveTile[1](%u) is multiple of VectorWidthB(%u) * 2"%(state["MIWaveTile"][1],state["VectorWidthB"]))
+        # return
+        # Many existing kernels are rejected with this condition.
+        # So far, continue with VectorWidthB //=state["numSubTiles"]
+        state["VectorWidthB"] //= state["numSubTiles"]
+
+    if state["ProblemType"]["Sparse"] and not state["DirectToVgprSparseMetadata"]:
+      state["VectorWidthMetadata"] = state["VectorWidthA"] if state["ProblemType"]["Sparse"] == 1 else state["VectorWidthB"]
+
     # if state["EnableMatrixInstruction"] and not state["SourceSwap"] and (state["VectorWidthA"] > 1 or state["VectorWidthB"] > 1):
     #   reject(state, printRejectionReason, "not implement VectorWidth without SourceSwap")
 
@@ -1467,32 +1578,16 @@ class Solution(collections.abc.Mapping):
     if "ValidDepthU" in state:
       del state["ValidDepthU"]
 
-    #################################################################
-    # ForceUnrollSubIter requirements
-    # - Needs PGR > 0, double buffer
-    # - MIWaveTile must be even and larger than 2
-    # - TLU{A,B} cases only supported if using LdsTR or if VPerm not needed (size{A,B} >= 4)
-    #
-    # - Not supported for mixed precision cases currently
-    sizeDataTypeA = state["ProblemType"]["DataTypeA"].numBytes()
-    sizeDataTypeB = state["ProblemType"]["DataTypeB"].numBytes()
-    sizeDataType = state["ProblemType"]["DataType"].numBytes()
-    TLUA = state["ProblemType"]["TLUA"]
-    TLUB = state["ProblemType"]["TLUB"]
-    if (
-      state["EnableMatrixInstruction"] and not state["ExpandPointerSwap"] and
-      state["DepthU"] == state["MatrixInstK"] and state["PrefetchGlobalRead"] and not state["1LDSBuffer"]
-      and (state["MIWaveTile"][0] > 2  and state["MIWaveTile"][1] > 2)
-      and (state["MIWaveTile"][0] % 2 == 0 and state["MIWaveTile"][1] % 2 == 0)
-      and (sizeDataTypeA == sizeDataType) and (sizeDataTypeB == sizeDataType)
-      and ((TLUA == False or state["enableLDSTrA"] or sizeDataTypeA >= 4) and (TLUB == False or state["enableLDSTrB"] or sizeDataTypeB >= 4) )
-    ):
-      state["ForceUnrollSubIter"] = True
-      state["numSubTiles"] = 2
-      state["PrefetchLocalRead"] = 0 if state["ClusterLocalRead"] == 0 else state["PrefetchLocalRead"]
-    else:
-      state["ForceUnrollSubIter"] = False
-      state["numSubTiles"] = 1
+    # non UseF32XEmulation case, SubIter setting after DepthU
+    if not isSubIterSettingDone:
+      doSubIterSetting()
+      isSubIterSettingDone = True
+
+    if state["UseDirect32XEmulation"] == True:
+      #   Turn off Direct32X for the following kernels:
+      #   Cijk_Ailk_Bjlk_S_MX_B_Bias_HA_S_SAV_UserArgs_MT16x16x512_MI16x16x1
+      if (state["MacroTile0"] == 16 and state["MacroTile1"] == 16 and state["DepthU"] == 512):
+        state["UseDirect32XEmulation"] = False
 
     # Check if CMS is available for this solution
     if state["UseCustomMainLoopSchedule"] in [-1, 1]:
@@ -2249,19 +2344,9 @@ class Solution(collections.abc.Mapping):
     if state["ScheduleIterAlg"] == 2:
       state["InnerUnroll"] = state["DepthU"] // state["MatrixInstK"]
       state["PrefetchLocalRead"] = 1
-      state["ExpandPointerSwap"] = 1
+      #state["ExpandPointerSwap"] = 1 # EPS is adjusted in advance
       state["1LDSBuffer"] = 1
-      print2("\nSet SIA=2, force PrefetchLocalRead=1, ExpandPointerSwap=1, 1LDSBuffer=1")
-
-    if state["ExpandPointerSwap"] == 1:
-      # Pointer swap only used if PGR==1 or (PGR>1 and double/double complex) - so set ExpandPointerSwap=0 here
-      # So far, EPS=1 and PGR>1 works only with double/double complex.
-      #if not (bufferLoad and state["PrefetchGlobalRead"] == 1):
-      if not (bufferLoad and ( state["PrefetchGlobalRead"] == 1 \
-              or (state["PrefetchGlobalRead"] > 1 and \
-                  (state["ProblemType"]["DataType"].isDouble() or state["ProblemType"]["DataType"].isDoubleComplex()))
-              or (state["ProblemType"]["Sparse"] and state["PrefetchGlobalRead"] > 0))):
-        state["ExpandPointerSwap"] = 0
+      print2("\nSet SIA=2, force PrefetchLocalRead=1, 1LDSBuffer=1")
 
     # Default GlobalStoreVectorWidth
     if state["StoreVectorWidth"] == -1:
@@ -3221,6 +3306,7 @@ class Solution(collections.abc.Mapping):
       state["UseInstOffsetForGRO"] = 1 if state["DirectToLds"] else 0
 
     state["ULSGRODoubleG2L"] = 0
+    
     if state["UnrollLoopSwapGlobalReadOrder"] == 1:
       bpeAB       = state["ProblemType"]["DataType"].numBytes()
       bpr         = 4
