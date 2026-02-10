@@ -625,8 +625,11 @@ struct sequence_map_inverse<Sequence<Is...>>
     static constexpr auto build_inverse()
     {
         InverseArray result{};
-        index_t pos = 0;
-        ((result.data[Is] = pos++), ...);
+        constexpr index_t input[] = {Is...};
+        for(index_t pos = 0; pos < static_cast<index_t>(sizeof...(Is)); ++pos)
+        {
+            result.data[input[pos]] = pos;
+        }
         return result;
     }
 
