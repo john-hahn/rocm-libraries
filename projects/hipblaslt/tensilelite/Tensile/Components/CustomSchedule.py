@@ -3523,8 +3523,8 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
             waitLRA0, SWaitCnt(dscnt=4, vlcnt=-1, vscnt=-1, comment="Wait first 20 LRA0 to complete"),
             waitLRA0+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRA0 to complete"),
 
-            waitLRB0, SWaitCnt(dscnt=8, vlcnt=-1, vscnt=-1, comment="Wait for first 8 LRB0s"),
-            waitLRB0+3, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s"),
+            waitLRB0, SWaitCnt(dscnt=8, vlcnt=-1, vscnt=-1, comment="Wait for first 1/2 LRB0s to complete"),
+            waitLRB0+3, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s to complete"),
             waitLRB0+3, SBarrier(comment="Barrier before GRA&GRB"),
 
             max(grB)+3, SWaitCnt(dscnt=-1, vlcnt=6, vscnt=-1, comment="Wait for previous GRA&GRB"),
@@ -3533,9 +3533,10 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
             max(grA)+1, SWaitCnt(dscnt=-1, vlcnt=10, vscnt=-1, comment="Wait for previous GRA&GRB"),
             max(grA)+1, SBarrier(comment=""),
 
-            waitLRB3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB3s"),
+            waitLRB3, SWaitCnt(dscnt=8, vlcnt=-1, vscnt=-1, comment="Wait for first 1/2 LRB3s to complete"),
+            waitLRB3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB3s to complete"),
 
-            waitLRA3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s before packing"),
+            waitLRA3+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s to complete"),
         ]
 
         optSchedule = {
