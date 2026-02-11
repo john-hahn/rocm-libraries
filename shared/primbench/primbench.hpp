@@ -3588,15 +3588,29 @@ public:
              size_t                 default_bytes,
              detail::flags::FlagTag flags  = flags::none,
              hipStream_t            stream = hipStreamDefault)
-        : m_stream(stream), m_flags(flags), m_cli(argc, argv)
+        : m_stream(stream)
+        , m_own_stream(stream == hipStreamDefault)
+        , m_flags(flags)
+        , m_cli(argc, argv)
     {
         get_logger().save_program_start_time();
 
         m_cli_settings = parse(m_cli, default_bytes);
 
+        // If user did not provide a stream, create a fast private one.
+        // We can't use hipStreamDefault, as it synchronizes with the host.
+        if(m_own_stream)
+            PRIMBENCH_HIP_CHECK(hipStreamCreate(&m_stream));
+
         m_stream_blocker = std::make_unique<detail::stream_blocker>(
             m_stream,
             m_cli_settings.stream_blocking_timeout_secs.count());
+    }
+
+    ~executor()
+    {
+        if(m_own_stream && m_stream != nullptr)
+            PRIMBENCH_HIP_CHECK(hipStreamDestroy(m_stream));
     }
 
     /**
@@ -3989,6 +4003,7 @@ private:
     inline static std::vector<std::unique_ptr<benchmark_interface>> static_specializations;
 
     hipStream_t m_stream; /**< HIP stream used for execution */
+    bool        m_own_stream; /** Whether primbench should create its own stream */
 
     detail::flags::FlagTag m_flags; /**< Executor flags */
 
