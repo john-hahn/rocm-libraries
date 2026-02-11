@@ -858,6 +858,7 @@ void segmented_sort(KeysInputIterator                                           
 
 template<class ArchConfig,
          bool Descending,
+         bool IsUnknownGridSize,
          class KeysInputIterator,
          class KeysOutputIterator,
          class ValuesInputIterator,
@@ -905,17 +906,14 @@ void segmented_sort_large(
                                       radix_bits,
                                       Descending>;
 
-    const auto num_segments   = segment_counts[0];
     const auto start_block_id = ::rocprim::detail::block_id<0>();
-    const auto grid_size      = ::rocprim::detail::grid_size<0>();
-
     ROCPRIM_SHARED_MEMORY union
     {
         typename single_block_helper_type::storage_type single_block_helper;
         typename long_radix_helper_type::storage_type   long_radix_helper;
     } storage;
 
-    for(auto block_id = start_block_id; block_id < num_segments; block_id += grid_size)
+    auto sort_segments = [&](auto block_id)
     {
         bool               segment_to_output = buffer_to_output;
         const unsigned int segment_id        = segment_indices[block_id];
@@ -925,7 +923,7 @@ void segmented_sort_large(
         const bool use_long_radix_sort = end_offset - begin_offset > items_per_block;
         if(end_offset <= begin_offset)
         {
-            continue;
+            return;
         }
 
         if(use_long_radix_sort)
@@ -968,11 +966,26 @@ void segmented_sort_large(
         }
         // No need for '::rocprim::syncthreads();' here, since
         // this is already done by the previous sorts.
+    };
+
+    if constexpr(IsUnknownGridSize)
+    {
+        const auto num_segments = segment_counts[0];
+        const auto grid_size    = ::rocprim::detail::grid_size<0>();
+        for(auto block_id = start_block_id; block_id < num_segments; block_id += grid_size)
+        {
+            sort_segments(block_id);
+        }
+    }
+    else
+    {
+        sort_segments(start_block_id);
     }
 }
 
 template<class ArchConfig,
          bool Descending,
+         bool IsUnknownGridSize,
          class KeysInputIterator,
          class KeysOutputIterator,
          class ValuesInputIterator,
@@ -1023,14 +1036,15 @@ void segmented_sort_small(
     const auto num_segments = segments_counts[2] /* total */ - segments_counts[1] /* medium */
                               - segments_counts[0] /* large */;
     const auto start_block_id  = ::rocprim::detail::block_id<0>();
-    const auto grid_size       = ::rocprim::detail::grid_size<0>();
     const auto logical_warp_id = ::rocprim::detail::logical_warp_id<logical_warp_size>();
-    for(auto block_id = start_block_id; true; block_id += grid_size)
+
+    auto sort_segments = [&](auto block_id)
     {
         const auto segment_index = (block_id * warps_per_block) + logical_warp_id;
         if(segment_index >= num_segments)
         {
-            return;
+            // Break out of outer loop.
+            return true;
         }
 
         const unsigned int segment_id   = segment_indices[segment_index];
@@ -1039,7 +1053,8 @@ void segmented_sort_small(
 
         if(end_offset <= begin_offset)
         {
-            continue;
+            // Do not break out of outer loop.
+            return false;
         }
 
         warp_sort_helper_type().sort(keys_input,
@@ -1054,11 +1069,29 @@ void segmented_sort_small(
                                      begin_bit,
                                      end_bit,
                                      storage);
+        return false;
+    };
+
+    if constexpr(IsUnknownGridSize)
+    {
+        const auto grid_size = ::rocprim::detail::grid_size<0>();
+        for(auto block_id = start_block_id; block_id < num_segments; block_id += grid_size)
+        {
+            if(sort_segments(block_id))
+            {
+                return;
+            }
+        }
+    }
+    else
+    {
+        sort_segments(start_block_id);
     }
 }
 
 template<class ArchConfig,
          bool Descending,
+         bool IsUnknownGridSize,
          class KeysInputIterator,
          class KeysOutputIterator,
          class ValuesInputIterator,
@@ -1108,14 +1141,15 @@ void segmented_sort_medium(
 
     const auto num_segments    = segments_counts[1] /* medium */;
     const auto start_block_id  = ::rocprim::detail::block_id<0>();
-    const auto grid_size       = ::rocprim::detail::grid_size<0>();
     const auto logical_warp_id = ::rocprim::detail::logical_warp_id<logical_warp_size>();
-    for(auto block_id = start_block_id; true; block_id += grid_size)
+
+    auto sort_segments = [&](auto block_id)
     {
         const auto segment_index = (block_id * warps_per_block) + logical_warp_id;
         if(segment_index >= num_segments)
         {
-            return;
+            // Break out of outer loop.
+            return true;
         }
 
         const unsigned int segment_id   = segment_indices[segment_index];
@@ -1124,7 +1158,8 @@ void segmented_sort_medium(
 
         if(end_offset <= begin_offset)
         {
-            continue;
+            // Do not break out of outer loop.
+            return false;
         }
 
         warp_sort_helper_type().sort(keys_input,
@@ -1139,6 +1174,23 @@ void segmented_sort_medium(
                                      begin_bit,
                                      end_bit,
                                      storage);
+        return false;
+    };
+
+    if constexpr(IsUnknownGridSize)
+    {
+        const auto grid_size = ::rocprim::detail::grid_size<0>();
+        for(auto block_id = start_block_id; block_id < num_segments; block_id += grid_size)
+        {
+            if(sort_segments(block_id))
+            {
+                return;
+            }
+        }
+    }
+    else
+    {
+        sort_segments(start_block_id);
     }
 }
 
