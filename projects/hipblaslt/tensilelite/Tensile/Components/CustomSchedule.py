@@ -3521,8 +3521,7 @@ def _get_schedule_192x128x32_TF32(kernel, useLDSTr, TLDS):
             -1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for rest of LRA3s for next iteration"),
 
             waitLRA0, SWaitCnt(dscnt=4, vlcnt=-1, vscnt=-1, comment="Wait first 20 LRA0 to complete"),
-            waitLRA0+1, SWaitCnt(dscnt=4, vlcnt=-1, vscnt=-1, comment="Wait first 20 LRA0 to complete"),
-            waitLRA0+2, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRA0 to complete"),
+            waitLRA0+1, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRA0 to complete"),
 
             waitLRB0, SWaitCnt(dscnt=8, vlcnt=-1, vscnt=-1, comment="Wait for first 8 LRB0s"),
             waitLRB0+3, SWaitCnt(dscnt=0, vlcnt=-1, vscnt=-1, comment="Wait for all LRB0s"),
