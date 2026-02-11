@@ -22,7 +22,6 @@ add_executable(
     flatbuffer_utilities/TestKnobWrapper.cpp
     flatbuffer_utilities/TestKnobSettingWrapper.cpp
     utilities/TestAllocators.cpp
-    utilities/TestCallbackLogger.cpp
     utilities/TestEngineNames.cpp
     utilities/TestFloats.cpp
     utilities/TestJson.cpp
