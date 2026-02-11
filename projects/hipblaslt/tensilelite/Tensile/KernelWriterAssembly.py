@@ -188,7 +188,7 @@ class KernelWriterAssembly(KernelWriter):
     occupancy = min(totalVgprs//vgprsAligned, maxOccupancy)
     # occupancy = 1
 
-    print("vgprs = ", vgprs, "vgprsAligned = ", vgprsAligned, "Occupancy = ", occupancy)
+    # print("vgprs = ", vgprs, "vgprsAligned = ", vgprsAligned, "Occupancy = ", occupancy)
 
     return occupancy
 

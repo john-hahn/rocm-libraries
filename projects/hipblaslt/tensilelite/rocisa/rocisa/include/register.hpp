@@ -276,11 +276,11 @@ namespace rocisa
                                const std::string& tag             = "_untagged_aligned_",
                                int                preventOverflow = -1)
         {
-            printf("RP:: '%s' (%zu,%zu) @ avail=%zu\n",
-                           tag.c_str(),
-                           size,
-                           alignment,
-                           available());
+            // printf("RP:: '%s' (%zu,%zu) @ avail=%zu\n",
+            //                tag.c_str(),
+            //                size,
+            //                alignment,
+            //                available());
             if(preventOverflow == -1)
             {
                 preventOverflow = int(m_defaultPreventOverflow);
