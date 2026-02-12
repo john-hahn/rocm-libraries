@@ -47,7 +47,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(MAX_THDS) latrd_dot_scale_axpy(const I n
                                                                        T* WW,
                                                                        const rocblas_stride shiftW,
                                                                        const rocblas_stride strideW,
-                                                                       T* tauA,
+                                                                       T* pTauA,
                                                                        const rocblas_stride strideP)
 {
     I bid = blockIdx.z;
@@ -56,7 +56,7 @@ ROCSOLVER_KERNEL void __launch_bounds__(MAX_THDS) latrd_dot_scale_axpy(const I n
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
     T* W = load_ptr_batch<T>(WW, bid, shiftW, strideW);
-    T* tau = load_ptr_batch<T>(tauA, bid, 0, strideP);
+    T* tau = load_ptr_batch<T>(pTauA, bid, 0, strideP);
 
     // shared variables
     __shared__ T sval[MAX_THDS / WarpSize];
@@ -414,7 +414,7 @@ ROCSOLVER_KERNEL void latrd_reduce_kernel(const rocblas_fill uplo,
                                           const rocblas_int shiftY,
                                           const rocblas_int ldy,
                                           const rocblas_stride strideY,
-                                          T* workA,
+                                          T* pWorkA,
                                           const rocblas_stride strideblk)
 {
     int bid = hipBlockIdx_z;
@@ -433,8 +433,8 @@ ROCSOLVER_KERNEL void latrd_reduce_kernel(const rocblas_fill uplo,
 
     // select batch instance
     bool upper = (uplo == rocblas_fill_upper);
-    T* y1 = upper ? load_ptr_batch<T>(yA, bid, shiftY, strideY) : workA + bid * strideblk;
-    T* y2 = upper ? workA + bid * strideblk : load_ptr_batch<T>(yA, bid, shiftY, strideY);
+    T* y1 = upper ? load_ptr_batch<T>(yA, bid, shiftY, strideY) : pWorkA + bid * strideblk;
+    T* y2 = upper ? pWorkA + bid * strideblk : load_ptr_batch<T>(yA, bid, shiftY, strideY);
     T* dac = dacA + bid * strideD;
 
     // rpgr is the number of rounds a group should run
@@ -493,7 +493,7 @@ ROCSOLVER_KERNEL void latrd_upper_updateA_kernel(const rocblas_int mm,
                                                  const rocblas_int shiftA,
                                                  const rocblas_int lda,
                                                  const rocblas_stride strideA,
-                                                 T* WA,
+                                                 T* pWA,
                                                  const rocblas_int shiftW,
                                                  const rocblas_int ldw,
                                                  const rocblas_stride strideW)
@@ -514,7 +514,7 @@ ROCSOLVER_KERNEL void latrd_upper_updateA_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
 
     /* ------------------------
     formulate gemv problem:
@@ -604,7 +604,7 @@ ROCSOLVER_KERNEL void latrd_lower_updateA_kernel(const rocblas_int mm,
                                                  const rocblas_int shiftA,
                                                  const rocblas_int lda,
                                                  const rocblas_stride strideA,
-                                                 T* WA,
+                                                 T* pWA,
                                                  const rocblas_int shiftW,
                                                  const rocblas_int ldw,
                                                  const rocblas_stride strideW)
@@ -625,7 +625,7 @@ ROCSOLVER_KERNEL void latrd_lower_updateA_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
 
     /* ------------------------
     formulate gemv problem:
@@ -716,7 +716,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_symv_kernel(const rocblas_int mm,
                                                        const rocblas_int shiftA,
                                                        const rocblas_int lda,
                                                        const rocblas_stride strideA,
-                                                       T* WA,
+                                                       T* pWA,
                                                        const rocblas_int shiftW,
                                                        const rocblas_int ldw,
                                                        const rocblas_stride strideW,
@@ -740,7 +740,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_symv_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* dac = dacA + bid * strideD;
 
     /* -----------------------------
@@ -847,7 +847,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_symv_kernel(const rocblas_int mm,
                                                        const rocblas_int shiftA,
                                                        const rocblas_int lda,
                                                        const rocblas_stride strideA,
-                                                       T* WA,
+                                                       T* pWA,
                                                        const rocblas_int shiftW,
                                                        const rocblas_int ldw,
                                                        const rocblas_stride strideW,
@@ -871,7 +871,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_symv_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* dac = dacA + bid * strideD;
 
     /* -----------------------------
@@ -977,7 +977,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_gemv_kernel(const rocblas_int mm,
                                                        const rocblas_int shiftA,
                                                        const rocblas_int lda,
                                                        const rocblas_stride strideA,
-                                                       T* WA,
+                                                       T* pWA,
                                                        const rocblas_int shiftW,
                                                        const rocblas_int ldw,
                                                        const rocblas_stride strideW,
@@ -1001,7 +1001,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_gemv_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* dac = dacA + bid * strideD;
 
     /* -----------------------------
@@ -1107,7 +1107,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_gemvt_kernel(const rocblas_int mm,
                                                         const rocblas_int shiftA,
                                                         const rocblas_int lda,
                                                         const rocblas_stride strideA,
-                                                        T* WA,
+                                                        T* pWA,
                                                         const rocblas_int shiftW,
                                                         const rocblas_int ldw,
                                                         const rocblas_stride strideW,
@@ -1115,7 +1115,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_gemvt_kernel(const rocblas_int mm,
                                                         const rocblas_int shiftY,
                                                         const rocblas_int ldy,
                                                         const rocblas_stride strideY,
-                                                        T* workA,
+                                                        T* pWorkA,
                                                         const rocblas_stride strideblk)
 {
     rocblas_int bid = blockIdx.z;
@@ -1123,9 +1123,9 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_gemvt_kernel(const rocblas_int mm,
     rocblas_int i = blockIdx.x;
 
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* y1 = load_ptr_batch<T>(yA, bid, shiftY, strideY);
-    T* y2 = workA + bid * strideblk;
+    T* y2 = pWorkA + bid * strideblk;
 
     int n = c;
     int cc = mm - c - 1;
@@ -1193,7 +1193,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_gemv_kernel(const rocblas_int mm,
                                                        const rocblas_int shiftA,
                                                        const rocblas_int lda,
                                                        const rocblas_stride strideA,
-                                                       T* WA,
+                                                       T* pWA,
                                                        const rocblas_int shiftW,
                                                        const rocblas_int ldw,
                                                        const rocblas_stride strideW,
@@ -1217,7 +1217,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_gemv_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* dac = dacA + bid * strideD;
 
     /* -----------------------------
@@ -1320,7 +1320,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_gemvt_kernel(const rocblas_int mm,
                                                         const rocblas_int shiftA,
                                                         const rocblas_int lda,
                                                         const rocblas_stride strideA,
-                                                        T* WA,
+                                                        T* pWA,
                                                         const rocblas_int shiftW,
                                                         const rocblas_int ldw,
                                                         const rocblas_stride strideW,
@@ -1328,7 +1328,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_gemvt_kernel(const rocblas_int mm,
                                                         const rocblas_int shiftY,
                                                         const rocblas_int ldy,
                                                         const rocblas_stride strideY,
-                                                        T* workA,
+                                                        T* pWorkA,
                                                         const rocblas_stride strideblk)
 {
     rocblas_int bid = blockIdx.z;
@@ -1336,8 +1336,8 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_gemvt_kernel(const rocblas_int mm,
     rocblas_int i = blockIdx.x;
 
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
-    T* y1 = workA + bid * strideblk;
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
+    T* y1 = pWorkA + bid * strideblk;
     T* y2 = load_ptr_batch<T>(yA, bid, shiftY, strideY);
 
     int n = mm - c - 1;
@@ -1406,7 +1406,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_kernel(const rocblas_int mm,
                                                   const rocblas_int shiftA,
                                                   const rocblas_int lda,
                                                   const rocblas_stride strideA,
-                                                  T* WA,
+                                                  T* pWA,
                                                   const rocblas_int shiftW,
                                                   const rocblas_int ldw,
                                                   const rocblas_stride strideW,
@@ -1430,7 +1430,7 @@ ROCSOLVER_KERNEL void latrd_upper_computeW_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* dac = dacA + bid * strideD;
 
     /* -----------------------------
@@ -1528,7 +1528,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_kernel(const rocblas_int mm,
                                                   const rocblas_int shiftA,
                                                   const rocblas_int lda,
                                                   const rocblas_stride strideA,
-                                                  T* WA,
+                                                  T* pWA,
                                                   const rocblas_int shiftW,
                                                   const rocblas_int ldw,
                                                   const rocblas_stride strideW,
@@ -1552,7 +1552,7 @@ ROCSOLVER_KERNEL void latrd_lower_computeW_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* dac = dacA + bid * strideD;
 
     /* -----------------------------
@@ -1650,34 +1650,34 @@ ROCSOLVER_KERNEL void latrd_upper_updateW_kernel(const rocblas_int mm,
                                                  const rocblas_int shiftA,
                                                  const rocblas_int lda,
                                                  const rocblas_stride strideA,
-                                                 T* WA,
+                                                 T* pWA,
                                                  const rocblas_int shiftW,
                                                  const rocblas_int ldw,
                                                  const rocblas_stride strideW,
-                                                 T* workA,
+                                                 T* pWorkA,
                                                  const rocblas_stride strideblk,
-                                                 T* tauA,
+                                                 T* pTauA,
                                                  const rocblas_stride strideP)
 {
-    int bid = hipBlockIdx_z;
-    int bidr = hipBlockIdx_x;
-    int bidc = hipBlockIdx_y;
-    int tidr = hipThreadIdx_x;
-    int tidc = hipThreadIdx_y;
-    int threadsr = hipBlockDim_x;
-    int threadsc = hipBlockDim_y;
-    int groupsr = hipGridDim_x;
-    int groupsc = hipGridDim_y;
+    int bid       = hipBlockIdx_z;
+    int bidr      = hipBlockIdx_x;
+    int bidc      = hipBlockIdx_y;
+    int tidr      = hipThreadIdx_x;
+    int tidc      = hipThreadIdx_y;
+    int threadsr  = hipBlockDim_x;
+    int threadsc  = hipBlockDim_y;
+    int groupsr   = hipGridDim_x;
+    int groupsc   = hipGridDim_y;
     int totalthsr = groupsr * threadsr;
     int totalthsc = groupsc * threadsc;
-    int idc = bidc * threadsc + tidc;
-    int idr = bidr * threadsr + tidr;
+    int idc       = bidc * threadsc + tidc;
+    int idr       = bidr * threadsr + tidr;
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
-    T* work = workA + bid * strideblk;
-    T* tau = tauA + bid * strideP;
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
+    T* work = pWorkA + bid * strideblk;
+    T* tau = pTauA + bid * strideP;
 
     /* ------------------------
     formulate gemv problem:
@@ -1694,31 +1694,39 @@ ROCSOLVER_KERNEL void latrd_upper_updateW_kernel(const rocblas_int mm,
         operation:
             y = t * (y - A1 * x1 - A2 * x2)
     ------------------------ */
-    int n = mm - c - 1;
-    int m = c;
-    int cw = c - mm + k;
-    T* y = W + idx2D(0, cw, ldw);
-    T* A1 = A + idx2D(0, c + 1, lda);
+    int n    = mm - c - 1;
+    int m    = c;
+    int cw   = c - mm + k;
+    T* pY    = W + idx2D(0, cw, ldw);
+    T* pA1   = A + idx2D(0, c + 1, lda);
     int lda1 = lda;
-    T* A2 = W + idx2D(0, cw + 1, ldw);
+    T* pA2   = W + idx2D(0, cw + 1, ldw);
     int lda2 = ldw;
-    T* x1 = work;
-    T* x2 = W + idx2D(c + 1, cw, ldw);
-    T* t = tau + c - 1;
-
+    T* pX1   = work;
+    T* pX2   = W + idx2D(c + 1, cw, ldw);
+    T* t     = tau + c - 1;
+    const auto tauVal =  t[0];
     // rpgr and rpgc are the number of rounds a group should run
     // to cover all the rows and columns, respectively
     int ngrp = (m - 1) / threadsr + 1;
     int rpgr = (ngrp - 1) / groupsr + 1;
-    ngrp = (n - 1) / threadsc + 1;
+    ngrp     = (n - 1) / threadsc + 1;
     int rpgc = (ngrp - 1) / groupsc + 1;
     int i, j;
+
+    //define buffer types
+
+    auto Y_buffer  = __builtin_amdgcn_make_buffer_rsrc(pY, 0,0xffffffff,0);
+    auto X1_buffer = __builtin_amdgcn_make_buffer_rsrc(pX1,0,0xffffffff,0);
+    auto X2_buffer = __builtin_amdgcn_make_buffer_rsrc(pX2,0,0xffffffff,0);
+    auto A1_buffer = __builtin_amdgcn_make_buffer_rsrc(pA1,0,0xffffffff,0);
+    auto A2_buffer = __builtin_amdgcn_make_buffer_rsrc(pA2,0,0xffffffff,0);
 
     // Registers/LDS:
     // ac, acs -> accumulator
     // sx -> hold the elements of 'x'
     extern __shared__ double smem[]; //min size should be threadsr x threadsc
-    T* acs = reinterpret_cast<T*>(smem);
+    T* acs_smem = reinterpret_cast<T*>(smem);
     T ac;
     T sx1, sx2;
 
@@ -1727,20 +1735,76 @@ ROCSOLVER_KERNEL void latrd_upper_updateW_kernel(const rocblas_int mm,
         i = ii * totalthsr + idr;
 
         // read y
-        ac = (idc == 0 && i < m) ? y[i] : 0;
+        const auto Y_ld_addr = (idc == 0 && i < m) ? i * sizeof(T) : 0xffffffff;
+        if constexpr(sizeof(T) == 1)
+            ac =  __builtin_amdgcn_raw_buffer_load_b8(Y_buffer, Y_ld_addr,0,0);
+        else if constexpr(sizeof(T) == 2)
+            ac =__builtin_amdgcn_raw_buffer_load_b16(Y_buffer, Y_ld_addr,0,0);
+        else if constexpr(sizeof(T) == 4)
+            ac = __builtin_amdgcn_raw_buffer_load_b32(Y_buffer, Y_ld_addr,0,0);
+        else if constexpr(sizeof(T) == 8)
+        {
+            const auto tmp =  __builtin_amdgcn_raw_buffer_load_b64(Y_buffer, Y_ld_addr,0,0);
+            memcpy(&ac, &tmp, sizeof(T));
+        }
 
         for(int jj = 0; jj < rpgc; ++jj)
         {
             // read x
             j = jj * totalthsc + idc;
-            sx1 = (j < n) ? x1[j] : 0;
-            sx2 = (j < n) ? x2[j] : 0;
 
-            // operation for all rows
-            if(i < m && j < n)
-                ac -= A1[i + j * lda1] * sx1 + A2[i + j * lda2] * sx2;
+            const auto x_addr = (j < n) ? j * sizeof(T) : 0xffffffff;
+            if constexpr(sizeof(T) == 1)
+            {
+                sx1 = __builtin_amdgcn_raw_buffer_load_b8(X1_buffer, x_addr, 0, 0);
+                sx2 = __builtin_amdgcn_raw_buffer_load_b8(X2_buffer, x_addr, 0, 0);
+            }
+            else if constexpr(sizeof(T) == 2)
+            {
+                sx1 = __builtin_amdgcn_raw_buffer_load_b16(X1_buffer, x_addr, 0, 0);
+                sx2 = __builtin_amdgcn_raw_buffer_load_b16(X2_buffer, x_addr, 0, 0);
+            }
+            else if constexpr(sizeof(T) == 4)
+            {
+                sx1 = __builtin_amdgcn_raw_buffer_load_b32(X1_buffer, x_addr, 0, 0);
+                sx2 = __builtin_amdgcn_raw_buffer_load_b32(X2_buffer, x_addr, 0, 0);
+            }
+            else if constexpr(sizeof(T) == 8)
+            {
+                const auto tmp1 = __builtin_amdgcn_raw_buffer_load_b64(X1_buffer, x_addr, 0, 0);
+                const auto tmp2 = __builtin_amdgcn_raw_buffer_load_b64(X2_buffer, x_addr, 0, 0);
+                memcpy(&sx1, &tmp1, sizeof(T));
+                memcpy(&sx2, &tmp2, sizeof(T));
+            }
+
+            const auto A1_addr = (i < m && j < n) ? (i + j * lda1) * sizeof(T) : 0xffffffff;
+            const auto A2_addr = (i < m && j < n) ? (i + j * lda2) * sizeof(T) : 0xffffffff;
+            T a1_val, a2_val = 0;
+            if constexpr(sizeof(T) == 1)
+            {
+                a1_val = __builtin_amdgcn_raw_buffer_load_b8(A1_buffer, A1_addr, 0, 0);
+                a2_val = __builtin_amdgcn_raw_buffer_load_b32(A2_buffer, A2_addr, 0, 0);
+            }
+            else if constexpr(sizeof(T) == 2)
+            {
+                a1_val = __builtin_amdgcn_raw_buffer_load_b16(A1_buffer, A1_addr, 0, 0);
+                a2_val = __builtin_amdgcn_raw_buffer_load_b16(A2_buffer, A2_addr, 0, 0);
+            }
+            else if constexpr(sizeof(T) == 4)
+            {
+                a1_val = __builtin_amdgcn_raw_buffer_load_b32(A1_buffer, A1_addr, 0, 0);
+                a2_val = __builtin_amdgcn_raw_buffer_load_b32(A2_buffer, A2_addr, 0, 0);
+            }
+            else if constexpr(sizeof(T) == 8)
+            {
+                const auto tmp1 = __builtin_amdgcn_raw_buffer_load_b64(A1_buffer, A1_addr, 0, 0);
+                const auto tmp2 = __builtin_amdgcn_raw_buffer_load_b64(A2_buffer, A2_addr, 0, 0);
+                memcpy(&a1_val, &tmp1, sizeof(T));
+                memcpy(&a2_val, &tmp2, sizeof(T));
+            }
+            ac -= a1_val * sx1 + a2_val * sx2;
         }
-        acs[tidr + tidc * threadsr] = ac;
+        acs_smem[tidr + tidc * threadsr] = ac;
         __syncthreads();
 
         // group reduction
@@ -1748,15 +1812,28 @@ ROCSOLVER_KERNEL void latrd_upper_updateW_kernel(const rocblas_int mm,
         {
             if(tidc < r)
             {
-                ac += acs[tidr + (tidc + r) * threadsr];
-                acs[tidr + tidc * threadsr] = ac;
+                ac += acs_smem[tidr + (tidc + r) * threadsr];
+                acs_smem[tidr + tidc * threadsr] = ac;
             }
             __syncthreads();
         }
 
         // write groups results in temp array for further reduction
-        if(tidc == 0 && i < m)
-            y[i] = ac * t[0];
+        const auto result = ac * tauVal;
+        const auto Y_out_addr = (i < m) ? (i * sizeof(T)) : 0xffffffff;
+        if constexpr(sizeof(T) == 1)
+            __builtin_amdgcn_raw_buffer_store_b8(result, Y_buffer, Y_out_addr, 0, 0x10);
+        else if constexpr(sizeof(T) == 2)
+            __builtin_amdgcn_raw_buffer_store_b16(result, Y_buffer, Y_out_addr, 0, 0x10);
+        else if constexpr(sizeof(T) == 4)
+            __builtin_amdgcn_raw_buffer_store_b32(result, Y_buffer, Y_out_addr, 0, 0x10);
+        else if constexpr(sizeof(T) == 8)
+        {
+            using uint32x2_t = uint32_t __attribute__((ext_vector_type(2)));
+            uint32x2_t tmp;
+            memcpy(&tmp, &result, sizeof(T));
+            __builtin_amdgcn_raw_buffer_store_b64(tmp, Y_buffer, Y_out_addr, 0, 0x10);
+        }
     }
 }
 
@@ -1767,16 +1844,16 @@ ROCSOLVER_KERNEL void latrd_lower_updateW_kernel(const rocblas_int mm,
                                                  const rocblas_int shiftA,
                                                  const rocblas_int lda,
                                                  const rocblas_stride strideA,
-                                                 T* WA,
+                                                 T* pWA,
                                                  const rocblas_int shiftW,
                                                  const rocblas_int ldw,
                                                  const rocblas_stride strideW,
-                                                 T* workA,
+                                                 T* pWorkA,
                                                  const rocblas_stride strideblk,
-                                                 T* tauA,
+                                                 T* pTauA,
                                                  const rocblas_stride strideP)
 {
-    int bid = hipBlockIdx_z;
+    int bid  = hipBlockIdx_z;
     int bidr = hipBlockIdx_x;
     int bidc = hipBlockIdx_y;
     int tidr = hipThreadIdx_x;
@@ -1792,9 +1869,9 @@ ROCSOLVER_KERNEL void latrd_lower_updateW_kernel(const rocblas_int mm,
 
     // select batch instance
     T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(WA, bid, shiftW, strideW);
-    T* work = workA + bid * strideblk;
-    T* tau = tauA + bid * strideP;
+    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
+    T* work = pWorkA + bid * strideblk;
+    T* tau = pTauA + bid * strideP;
 
     /* ------------------------
     formulate gemv problem:
