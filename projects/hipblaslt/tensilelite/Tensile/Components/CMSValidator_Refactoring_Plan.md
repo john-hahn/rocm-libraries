@@ -20,6 +20,7 @@ This document outlines architectural improvements for the CMSValidator module an
    - [R10: Separate Timeline Responsibilities](#r10-separate-timeline-responsibilities)
    - [R11: Improve Test Infrastructure](#r11-improve-test-infrastructure)
    - [R12: Document Limitations Formally](#r12-document-limitations-formally)
+   - [R13: Standardize ValidatorInstruction Class Hierarchy](#r13-standardize-validatorinstruction-class-hierarchy)
 3. [Implementation Plans](#implementation-plans)
 
 ---
@@ -40,6 +41,7 @@ This document outlines architectural improvements for the CMSValidator module an
 | 10 | Timeline class has too many jobs | Medium | Maintainability |
 | 11 | Testing infrastructure gaps | Medium | Testability |
 | 12 | Undocumented limitations | Low | Documentation |
+| 13 | Inconsistent instruction class interfaces | Medium | Type Safety / Maintainability |
 
 ---
 
@@ -786,6 +788,185 @@ def test_lr_finished_before_vmfma():
 
 ---
 
+### R13: Standardize ValidatorInstruction Class Hierarchy
+
+**Current State**: The `ValidatorInstruction` base class is minimal (just `name`, `issued_at`, `validate()`, `done_idx()`) and subclasses diverge significantly in their field types, constraint patterns, and error message formatting. This leads to several concrete problems:
+
+**Problem 1: `needed_by` type mismatch across subclasses**
+```python
+class LocalRead(ValidatorInstruction):
+    needed_by: ValidatorInstruction = ...   # An instruction object
+
+class Pack(ValidatorInstruction):
+    needed_by: ValidatorInstruction = ...   # An instruction object
+
+class GlobalRead(ValidatorInstruction):
+    needed_by: float = float('inf')         # A bare float!
+```
+`GlobalRead.needed_by` is a `float` (the `issued_at` of the first LR1/3), while `LocalRead.needed_by` and `Pack.needed_by` are `ValidatorInstruction` references. This means:
+- Error formatting code cannot be shared (one does `self.needed_by.name`, the other can't).
+- `validate_timeline()` can't make any assumptions about constraint fields.
+- `estimate_quad_cycles()` must use `hasattr()` checks instead of type-safe access.
+
+**Problem 2: `num_vmfma` stored redundantly on each instruction**
+```python
+class LocalRead(ValidatorInstruction):
+    num_vmfma: int          # Same value for all instances
+
+class Pack(ValidatorInstruction):
+    num_vmfma: int          # Same value for all instances
+
+class GlobalRead(ValidatorInstruction):
+    num_vmfma: int          # Same value for all instances
+```
+Every `LocalRead`, `Pack`, and `GlobalRead` stores the same `num_vmfma` value. It's used exclusively for display formatting (`floor(self.issued_at) % self.num_vmfma`) and cross-iteration detection (`self.needed_by.issued_at > self.num_vmfma`). Both of these uses disappear entirely if R2 (SchedulePosition) is implemented, since SchedulePosition would encode the vmfma index directly without needing modular arithmetic.
+
+**Problem 3: Duplicated display-index computation**
+
+The pattern `floor(self.issued_at) % self.num_vmfma` appears **19 times** across `validate()` methods, with a special case for idx=-1 appearing **3 times**:
+```python
+# This exact pattern (or minor variant) appears in LocalRead, Pack, and GlobalRead:
+issued_at = floor(self.issued_at) % self.num_vmfma
+
+# This special-case for idx=-1 appears in LocalRead and Pack:
+if self.num_vmfma - 1 + 0.5 <= (value % self.num_vmfma) < self.num_vmfma:
+    display_index = -1
+else:
+    display_index = floor(value) % self.num_vmfma
+```
+
+**Problem 4: Inconsistent error message formats**
+
+Each class formats errors differently, making them hard to parse programmatically or visually:
+```python
+# LocalRead:
+f"{self.name} @ idx={issued_at} is not valid. There are no guarantees on when it will be done."
+f"{self.name} @ idx={issued_at} issued too late, must be guaranteed before {self.needed_by.name} @ idx={needed_by}{context_str} but only guaranteed @ idx={guaranteed_by}."
+
+# Pack:
+f"{self.name} @ idx={issued_at} issued too early, must be issued after idx={must_start_after_at} (because of {self.must_start_after.name} issued @ idx={must_start_after_issued_at})."
+f"{self.name} @ idx={issued_at} issued too late, must be issued before {self.needed_by.name} @ idx={needed_by_at}."
+f"{self.name} @ idx={issued_at} has wrong interleaving. Should have been followed by ..."
+f"{self.name} @ idx={issued_at} has too little gap between it and ..."
+f"{self.name} at index {issued_at} is not valid."  # Note: "at index" not "@ idx="!
+
+# GlobalRead._validate_must_start_after():
+f"{name} @ idx={issued_at} is issued too early. Must be issued after idx=..."
+f"There is an SBarrier missing between the SWaitCnt @ idx=..."
+
+# GlobalRead._validate_needed_by():
+f"{name} @ idx={issued_at} is not valid. There are no guarantees on when it will be done."
+f"{name} @ idx={issued_at} is not valid. There is no SBarrier acting on it."
+f"{name} @ idx={issued_at} is not valid. It is guaranteed by the SWait @ idx=..."
+
+# SWait:
+f"SWait at index {floor(self.issued_at)} is invalid: ..."  # Uses "at index", no modulo wrapping
+
+# Barrier:
+f"Barrier at index {floor(self.issued_at)} is not valid. Must be >= -1."  # Uses "at index"
+```
+
+Note the inconsistencies: "at index" vs "@ idx=", "issued too early" vs "is issued too early", "is not valid" appearing in different positions, some messages explaining the fix ("Order must be X") and others not.
+
+**Problem 5: `estimate_quad_cycles()` uses `hasattr()` checks**
+```python
+# Current: runtime duck-typing
+if not hasattr(instruction, "needed_by") or instruction.needed_by is None:
+    continue
+if not hasattr(instruction, "min_quad_cycles_before_result_used"):
+    continue
+```
+These `hasattr()` checks exist because the base class doesn't define `needed_by` or `min_quad_cycles_before_result_used`, so there's no type-safe way to check if an instruction has constraints.
+
+**Target State**:
+
+1. **Unify `GlobalRead.needed_by` to `ValidatorInstruction`** (matching `LocalRead` and `Pack`):
+```python
+class GlobalRead(ValidatorInstruction):
+    needed_by: ValidatorInstruction = field(default_factory=lambda: MFMA(float('inf')))
+    # Instead of: needed_by: float = float('inf')
+```
+Update `set_gr_needed_by_from_lrs()` to assign the LR1/3 instruction object rather than its `issued_at`:
+```python
+# Before:
+for _, gr in grs:
+    gr.needed_by = LR_target.issued_at   # float
+
+# After:
+for _, gr in grs:
+    gr.needed_by = LR_target              # ValidatorInstruction
+```
+
+2. **Eliminate `num_vmfma` from instruction classes** (requires R2: SchedulePosition):
+
+With SchedulePosition, display indices are accessed directly:
+```python
+# Before (19 occurrences):
+issued_at = floor(self.issued_at) % self.num_vmfma
+
+# After:
+issued_at = self.issued_at.display_index
+```
+
+And the special idx=-1 handling moves into SchedulePosition:
+```python
+@dataclass(frozen=True, order=True)
+class SchedulePosition:
+    vmfma_index: int
+    sub_index: int = 0
+
+    @property
+    def display_index(self) -> int:
+        return self.vmfma_index
+```
+
+Cross-iteration detection (`self.needed_by.issued_at > self.num_vmfma`) would be handled by adding iteration info to SchedulePosition or by a separate mechanism.
+
+3. **Shared error formatting functions** (module-level, see R8):
+
+Once `needed_by` is unified, error formatting functions can work uniformly across all instruction types:
+```python
+def _error_issued_too_late(name: str, issued_at: int, needed_by_name: str, needed_by_at: int, context: str = "") -> str:
+    msg = f"{name} @ idx={issued_at} issued too late, must be issued before {needed_by_name} @ idx={needed_by_at}"
+    if context:
+        msg += f" {context}"
+    return msg + "."
+
+def _error_issued_too_early(name: str, issued_at: int, must_start_after_name: str, must_start_after_at: int) -> str:
+    return f"{name} @ idx={issued_at} issued too early, must be issued after {must_start_after_name} @ idx={must_start_after_at}."
+
+def _error_no_guarantee(name: str, issued_at: int) -> str:
+    return f"{name} @ idx={issued_at} has no guarantee on when it will be done."
+```
+
+These are usable by any class:
+```python
+# LocalRead.validate():
+return _error_issued_too_late(self.name, self.issued_at.display_index, self.needed_by.name, self.needed_by.issued_at.display_index, context_str)
+
+# Pack.validate():
+return _error_issued_too_late(self.name, self.issued_at.display_index, self.needed_by.name, self.needed_by.issued_at.display_index)
+
+# GlobalRead._validate_needed_by():
+return _error_issued_too_late(self.name, self.issued_at.display_index, self.needed_by.name, self.needed_by.issued_at.display_index)
+```
+
+**Benefits**:
+- `needed_by` has a single type across all instruction classes, enabling shared code
+- `num_vmfma` is eliminated from instruction classes (absorbed into SchedulePosition via R2)
+- Display index computation is centralized (19 occurrences reduced to SchedulePosition.display_index)
+- Error messages are consistent and testable
+- `hasattr()` checks in `estimate_quad_cycles()` are replaced with type-safe access
+- Cross-iteration detection logic is standardized
+
+**Relationship to other recommendations**:
+- **Depends on R2** (SchedulePosition) for eliminating `num_vmfma`
+- **Depends on R8** (error message centralization) for shared error functions
+- **Enables R9** (clarify validation logic) by making instruction interfaces consistent
+- **Can be done concurrently with R2** since both touch the same fields
+
+---
+
 ## Implementation Plans
 
 ### Plan for R1: Split File Into Modules
@@ -1286,19 +1467,126 @@ grep -n "TODO\|FIXME\|not supported\|skip" CMSValidator.py
 
 ---
 
+### Plan for R13: Standardize ValidatorInstruction Class Hierarchy
+
+**Estimated Effort**: Medium (1 day, but best done alongside R2 and R8)
+
+**Important**: This refactoring has strong dependencies on R2 (SchedulePosition) and R8 (error messages). The recommended approach is to implement all three together as a single coherent change, or in the order: R2 -> R13 -> R8.
+
+---
+
+#### Phase 1: Unify `needed_by` type on GlobalRead (can be done standalone)
+
+**Step 1**: Change `GlobalRead.needed_by` from `float` to `ValidatorInstruction`
+```python
+# Before:
+needed_by: float = float('inf')
+
+# After:
+needed_by: ValidatorInstruction = field(default_factory=lambda: MFMA(float('inf')))
+```
+
+**Step 2**: Update `set_gr_needed_by_from_lrs()` to assign the instruction object
+```python
+# Before (line 801):
+for _, gr in grs:
+    gr.needed_by = LR_target.issued_at
+
+# After:
+for _, gr in grs:
+    gr.needed_by = LR_target
+```
+
+**Step 3**: Update `GlobalRead._validate_needed_by()` to use `self.needed_by.issued_at` and `self.needed_by.name` instead of using `self.needed_by` directly as a float
+```python
+# Before:
+if self.needed_by == float('inf'):
+if self.issued_at < self.guaranteed_by < self.needed_by:
+needed_by = floor(self.needed_by) % self.num_vmfma
+
+# After:
+if self.needed_by.issued_at == float('inf'):
+if self.issued_at < self.guaranteed_by < self.needed_by.issued_at:
+needed_by = floor(self.needed_by.issued_at) % self.num_vmfma
+```
+
+**Step 4**: Update error messages in `_validate_needed_by()` to use `self.needed_by.name` instead of hardcoded "LR1"
+```python
+# Before:
+f"... which is after the first corresponding LR1 @ idx={needed_by}. Order must be {name} -> SWait -> SBarrier -> LR1."
+
+# After:
+f"... which is after {self.needed_by.name} @ idx={needed_by}. Order must be {name} -> SWait -> SBarrier -> {self.needed_by.name}."
+```
+
+**Step 5**: Run tests
+```bash
+pytest Tensile/Tests/unit/test_CMSValidator*.py -v
+```
+
+---
+
+#### Phase 2: Eliminate `num_vmfma` (requires R2: SchedulePosition)
+
+This phase should be done as part of or immediately after R2.
+
+**Step 1**: Ensure SchedulePosition (from R2) provides a `display_index` property
+```python
+@dataclass(frozen=True, order=True)
+class SchedulePosition:
+    vmfma_index: int
+    sub_index: int = 0
+
+    @property
+    def display_index(self) -> int:
+        return self.vmfma_index
+```
+
+**Step 2**: Replace all `floor(self.issued_at) % self.num_vmfma` with `self.issued_at.display_index` (19 occurrences)
+
+**Step 3**: Replace all `floor(self.X.issued_at) % self.num_vmfma` patterns with `self.X.issued_at.display_index` for referenced instructions (needed_by, must_start_after, etc.)
+
+**Step 4**: Handle the idx=-1 special case in SchedulePosition construction (in `Timeline._resolve_issued_at_indices()`) rather than in each `validate()` method
+
+**Step 5**: Handle cross-iteration detection. Currently uses `self.needed_by.issued_at > self.num_vmfma`. Options:
+- Add an `iteration` field to SchedulePosition
+- Add a `is_next_iteration(self, other: SchedulePosition) -> bool` method
+- Keep a separate mechanism outside the instruction classes
+
+**Step 6**: Remove `num_vmfma` field from `LocalRead`, `Pack`, and `GlobalRead` dataclasses
+
+**Step 7**: Remove `num_vmfma` parameter from Timeline's instruction construction calls
+
+**Step 8**: Run tests
+
+---
+
+#### Phase 3: Add shared error formatting (concurrent with or after R8)
+
+**Step 1**: Add error formatting functions as described in R8
+
+**Step 2**: Update all `validate()` methods to call the shared functions instead of inline f-strings
+
+**Step 3**: Verify error messages are consistent across all instruction types
+
+**Step 4**: Run tests and update any test expectations that depend on exact error message strings
+
+---
+
 ## Recommended Implementation Order
 
 1. **R3: Unified Timeline** (high value, creates single Timeline with progressive constraints)
 2. **R4: Extract Magic Numbers** (quick win, low risk)
 3. **R5: Define Typed Context** (quick win, improves IDE support)
-4. **R2: Replace Float Indices** (fixes potential correctness issue)
-5. **R8: Centralize Error Messages** (quick win, no logic changes)
-6. **R12: Document Limitations** (quick win, documentation only)
-7. **R9: Clarify Validation Logic** (already mostly done by R3)
-8. **R1: Split File Into Modules** (large effort, do after other changes stabilize)
-9. **R6: Registry Pattern for Packs** (medium effort, can do standalone or with R1)
-10. **R10: Separate Timeline** (large effort, do last)
-11. **R11: Improve Test Infrastructure** (ongoing, do incrementally)
+4. **R13: Standardize Class Hierarchy** (Phase 1: unify `needed_by` type — standalone, no dependencies; Phase 2: eliminate `num_vmfma` — after R2; Phase 3: shared error formatting — after R8)
+5. **R2: Replace Float Indices** (fixes potential correctness issue, enables R13 Phase 2)
+6. **R8: Centralize Error Messages** (quick win, enabled by R13 Phase 1's unified `needed_by` type)
+7. **R12: Document Limitations** (quick win, documentation only)
+8. **R9: Clarify Validation Logic** (already mostly done by R3, further enabled by R13)
+9. **R1: Split File Into Modules** (large effort, do after other changes stabilize)
+10. **R6: Registry Pattern for Packs** (medium effort, can do standalone or with R1)
+11. **R10: Separate Timeline** (large effort, do last)
+12. **R11: Improve Test Infrastructure** (ongoing, do incrementally)
 
 **Note**: R7 (ValidationPass Interface) is no longer needed - the unified timeline approach (R3) provides sufficient structure using simple functions.
 
