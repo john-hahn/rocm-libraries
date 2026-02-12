@@ -2353,7 +2353,10 @@ class Solution(collections.abc.Mapping):
         state["StoreVectorWidth"] = state["VectorWidthA"]
       else:
         if state["EnableMatrixInstruction"]:
-          state["StoreVectorWidth"] = state["MIOutputVectorWidth"]
+          if state["ProblemType"]["DestDataType"].numRegisters() < 2:
+            state["StoreVectorWidth"] = state["MIOutputVectorWidth"]
+          else:
+            state["StoreVectorWidth"] = 4 // state["ProblemType"]["DestDataType"].numRegisters()
           if state["VectorWidthA"] * state["MIOutputVectorWidth"] <= 4 / state["ProblemType"]["DestDataType"].numRegisters():
             state["StoreVectorWidth"] = state["VectorWidthA"] * state["MIOutputVectorWidth"]
           if state["LocalSplitU"] > 1:
