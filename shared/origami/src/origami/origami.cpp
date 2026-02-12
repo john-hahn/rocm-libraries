@@ -295,7 +295,7 @@ workgroup_mapping_t select_workgroup_mapping(const problem_t& problem,
  * @param hardware Hardware characteristics
  * @param config Kernel configuration.
  * @param skGrid SK grid.
- * @param autoWGM Auto-selected WGM.
+ * @param wgm Auto-selected WGM.
  * @return A staggerU_t struct: best predicted (staggerUMapping, staggerU, staggerUStrideShift).
  */
 staggerU_t select_staggerU(const problem_t& problem,
@@ -316,13 +316,10 @@ staggerU_t select_staggerU(const problem_t& problem,
   int nta = config.cache_hints_a;
   int ntb = config.cache_hints_b;
 
-  // Default values
-  size_t numCUs                     = hardware.N_CU;
-  size_t numXCD                     = hardware.NUM_XCD;
-  size_t numCUsPerXCD               = numCUs / numXCD;
-  size_t defaultStaggerUMapping     = 0;
-  size_t defaultStaggerU            = 0;
-  size_t defaultStaggerUStrideShift = 0;
+  // Hardware values
+  size_t numCUs       = hardware.N_CU;
+  size_t numXCD       = hardware.NUM_XCD;
+  size_t numCUsPerXCD = numCUs / numXCD;
 
   // Number of output MTs per split and batch
   size_t numMT_M = math::safe_ceil_div(M, MT_M);
@@ -338,12 +335,10 @@ staggerU_t select_staggerU(const problem_t& problem,
   // -------------------
   // NonTemporal Cases
   // -------------------
-  // if(nta > 3 && ntb < 4)
-  //   return workgroup_mapping_t{0, numMTs == 1 ? 1 : numXCD, 1};
-  // else if(nta < 4 && ntb > 3)
-  //   return workgroup_mapping_t{0, numMTs == 1 ? 1 : numXCD, -1};
-  // else if(nta > 3 && ntb > 3)
-  //   return workgroup_mapping_t{0, numMTs == 1 ? 1 : numXCD, 1};
+  // Non-temporal accesses bypass L2 cache, so staggerU (which reduces L2 contention)
+  // provides no benefit.
+  if (nta > 3 || ntb > 3)
+    return staggerU_t{0, 0, 0};
 
   // -------------------
   // General Cases
@@ -378,10 +373,15 @@ staggerU_t select_staggerU(const problem_t& problem,
 
   // Early Exit: splitK
   if (split_factor > 1) {
-    // Check for memory channel conflicts in split-K case
-    size_t split_k_bytes = math::safe_ceil_div(K, split_factor);
-    size_t stride_bytes  = static_cast<size_t>(split_k_bytes * data_type_to_bytes(problem.a_dtype));
-    bool has_stride_conflict = ((stride_bytes & (stride_bytes - 1)) == 0) && (stride_bytes >= 4096);
+    // Check for memory channel conflicts in split-K case for both A and B matrices.
+    // A power-of-2 stride >= 4096 bytes can cause HBM channel aliasing.
+    size_t split_k_elements = math::safe_ceil_div(K, split_factor);
+    size_t stride_bytes_a   = static_cast<size_t>(split_k_elements * data_type_to_bytes(problem.a_dtype));
+    size_t stride_bytes_b   = static_cast<size_t>(split_k_elements * data_type_to_bytes(problem.b_dtype));
+    auto is_power_of_2_conflict = [](size_t stride) {
+      return ((stride & (stride - 1)) == 0) && (stride >= 4096);
+    };
+    bool has_stride_conflict = is_power_of_2_conflict(stride_bytes_a) || is_power_of_2_conflict(stride_bytes_b);
     if (has_stride_conflict) {
       out_staggerUMapping     = 0;
       out_staggerU            = 16;
@@ -406,7 +406,7 @@ staggerU_t select_staggerU(const problem_t& problem,
   numWGsPerL2Tile = (numWGsPerL2Tile < numCUsPerXCD) ? numWGsPerL2Tile : numCUsPerXCD;
   if (wgm > 0) {
     // Positive WGM: row-major mapping
-    L2Tile_N             = (wgm < numMT_N) ? wgm : numMT_N;
+    L2Tile_N             = (static_cast<size_t>(wgm) < numMT_N) ? static_cast<size_t>(wgm) : numMT_N;
     size_t L2Tile_M_temp = math::safe_ceil_div(numWGsPerL2Tile, L2Tile_N);
     L2Tile_M             = (L2Tile_M_temp < numMT_M) ? L2Tile_M_temp : numMT_M;
     while (L2Tile_M * L2Tile_N < numWGsPerL2Tile && L2Tile_N < numMT_N) L2Tile_N++;
@@ -468,12 +468,37 @@ staggerU_t select_staggerU(const problem_t& problem,
     out_staggerU        = L2_staggerU;
   }
 
+  // If the stagger size is <= 1, there is nothing to stagger
+  if (out_staggerU <= 1) return staggerU_t{0, 0, 0};
+
   // Compute smallest power of 2 larger than or equal to out_staggerU
   // 64 is the maximum value for staggerU, however, 32 is a more practical value for most cases.
   size_t powerOf2 = 2;
   while (powerOf2 < out_staggerU) powerOf2 <<= 1;
-  out_staggerU            = (powerOf2 < 32) ? powerOf2 : 32;
-  out_staggerUStrideShift = 1;
+  out_staggerU = (powerOf2 < 32) ? powerOf2 : 32;
+
+  // Choose StaggerUStrideShift so that each stagger step crosses at least one
+  // L2 cache line boundary. Without this, adjacent stagger positions may hit the
+  // same cache line and staggering provides no benefit.
+  // Each stagger step spans: DepthU * bpe * 2^shift bytes.
+  // We need: DepthU * bpe * 2^shift >= L2_CACHE_LINE_BYTES
+  constexpr size_t L2_CACHE_LINE_BYTES = 128;
+  double min_bpe = std::min(data_type_to_bytes(problem.a_dtype),
+                              data_type_to_bytes(problem.b_dtype));
+  size_t bytes_per_k_iter = static_cast<size_t>(MT_K * min_bpe);
+  size_t min_shift = 0;
+  while ((bytes_per_k_iter << min_shift) < L2_CACHE_LINE_BYTES && min_shift < 5)
+    min_shift++;
+  out_staggerUStrideShift = min_shift;
+
+  // Ensure the total K-range (out_staggerU * 2^shift) fits within numMT_K.
+  // Kernel silently halves the effective stagger if it doesn't fit,
+  // so we reduce staggerU here for consistency.
+  while (out_staggerU > 1 && numMT_K < out_staggerU * (1ULL << out_staggerUStrideShift))
+    out_staggerU >>= 1;
+
+  // If staggerU was reduced to <= 1, there's no meaningful stagger left
+  if (out_staggerU <= 1) return staggerU_t{0, 0, 0};
 
   return staggerU_t{out_staggerUMapping, out_staggerU, out_staggerUStrideShift};
 }
