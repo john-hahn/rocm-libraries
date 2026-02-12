@@ -110,7 +110,7 @@ def main():
         else:
             cmd = workercmd
 
-        allcmd = [args.launcher] + cmd
+        allcmd = [args.launcher] + ["--np", str(args.nranks)] + cmd
         print(allcmd)
 
         fout = tempfile.TemporaryFile(mode="w+")
