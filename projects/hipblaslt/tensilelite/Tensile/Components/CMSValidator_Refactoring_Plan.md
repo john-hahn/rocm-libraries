@@ -96,17 +96,33 @@ Tensile/Components/CMSValidator/
 instruction.issued_at = 5.25  # vmfma_index=5, sub_index=1 of 4
 ```
 
-**Problem**: Float comparisons can fail due to precision:
-```python
-# Could fail unexpectedly
-if self.issued_at < self.needed_by.issued_at:
-```
+The float index is built up incrementally across three stages:
+1. **Construction** (`_populate_instructions`): `issued_at = idx_vmfma` (raw integer)
+2. **`_insert`**: `issued_at += num_vmfma * loop_index` (loop offset hack to encode which loop)
+3. **`_resolve_issued_at_indices`**: `issued_at += i_instruction / divisor` (sub-position via float fractions, with special-case handling for idx=-1 and idx=num_vmfma-1)
+
+**Problems**:
+- Float comparisons can fail due to precision
+- Loop identity is encoded as an arithmetic offset rather than an explicit field
+- Sub-index precision requires fragile float arithmetic with special cases
+- Three mutation stages make the code hard to follow
 
 **Target State**:
 ```python
 @dataclass(frozen=True, order=True)
 class SchedulePosition:
-    """Represents a position in the schedule with sub-index precision."""
+    """Represents a position in the schedule with sub-index precision.
+
+    Fields are ordered for comparison: loop_index first (coarsest), then vmfma_index,
+    then sub_index (finest). @dataclass(order=True) auto-generates __lt__, __le__,
+    __gt__, __ge__, and __eq__ using tuple-style comparison over fields in declaration order.
+
+    Args:
+        loop_index: Which loop this position belongs to (0=ML-1, 1=ML, 2=NGL, 3=NLL).
+        vmfma_index: The VMFMA index within the loop (-1 to num_vmfma-1).
+        sub_index: Position within a VMFMA slot (0-based, for multiple instructions at same vmfma_index).
+    """
+    loop_index: int
     vmfma_index: int
     sub_index: int = 0
 
@@ -114,15 +130,24 @@ class SchedulePosition:
     def display_index(self) -> int:
         """Return the vmfma_index for user-facing messages."""
         return self.vmfma_index
-
-    def is_before(self, other: 'SchedulePosition') -> bool:
-        """Explicit comparison for clarity."""
-        return self < other
 ```
+
+**Key Design Decisions**:
+
+1. **`frozen=True`**: The `SchedulePosition` is created in one shot inside `_insert`, where all three fields (loop_index, vmfma_index, sub_index) are known. The sub_index is simply the current length of the instruction list at that slot. This eliminates incremental mutation entirely.
+
+2. **`order=True`**: Auto-generates all comparison methods (`<`, `<=`, `>`, `>=`, `==`) using tuple-style comparison over `(loop_index, vmfma_index, sub_index)`. No manual comparator methods needed.
+
+3. **`loop_index` field**: Replaces the `num_vmfma * loop_index` offset hack in `_insert`. Loop identity is now explicit rather than encoded arithmetically.
+
+4. **Eliminates `_resolve_issued_at_indices`**: This entire method becomes unnecessary since the sub_index is computed at insert time.
 
 **Benefits**:
 - No floating-point precision issues
-- Explicit ordering semantics
+- Immutable after creation (frozen) — no accidental mutation
+- Explicit loop identity instead of arithmetic offset hack
+- All comparison operators generated automatically
+- Eliminates `_resolve_issued_at_indices` entirely
 - Self-documenting code
 
 ---
@@ -1023,41 +1048,73 @@ touch Tensile/Components/CMSValidator/utils/__init__.py
 
 **Step 1**: Define SchedulePosition class
 ```python
-# In instructions.py or new position.py
 @dataclass(frozen=True, order=True)
 class SchedulePosition:
+    """Fields ordered for tuple-style comparison: loop_index > vmfma_index > sub_index."""
+    loop_index: int
     vmfma_index: int
     sub_index: int = 0
+
+    @property
+    def display_index(self) -> int:
+        return self.vmfma_index
 ```
 
 **Step 2**: Update ValidatorInstruction base class
 - Change `issued_at: Union[int, float]` to `issued_at: SchedulePosition`
 - Update `done_idx()` return type
 
-**Step 3**: Update Timeline._resolve_issued_at_indices()
+**Step 3**: Update `Timeline._insert()` to create SchedulePosition in one shot
+The sub_index is the current length of the instruction list at that slot (i.e., how many instructions are already there). The loop_index and vmfma_index are already known. This replaces both the loop offset hack and the need for `_resolve_issued_at_indices`.
 ```python
-def _resolve_issued_at_indices(self) -> None:
+def _insert(self, vmfma_index: int, instruction: ValidatorInstruction, kernel: 'Solution') -> None:
     for loop in self.loops:
-        for i_vmfma in range(-1, self.num_vmfma):
-            instructions = self.get_instructions_at(i_vmfma, loop)
-            for i, instruction in enumerate(instructions):
-                instruction.issued_at = SchedulePosition(
-                    vmfma_index=i_vmfma,
-                    sub_index=i
-                )
+        if self._should_add(instruction, loop, kernel):
+            _instruction = deepcopy(instruction)
+
+            loop_index = self.loops.index(loop)
+            sub_index = len(self._instructions_at_index[loop][vmfma_index + 1])
+            _instruction.issued_at = SchedulePosition(
+                loop_index=loop_index,
+                vmfma_index=vmfma_index,
+                sub_index=sub_index
+            )
+
+            # Adjust for NLL/NGL shifts (SWait handling unchanged).
+            if isinstance(_instruction, SWait):
+                if _instruction.vlcnt != -1:
+                    vlcnt = max(0, _instruction.vlcnt - self.vlcnt_shift[loop])
+                    _instruction.vlcnt = vlcnt
+                if _instruction.dscnt != -1 and self.nll_zero_dscnt \
+                   and loop in [NO_LOCAL_LOAD_LOOP]:
+                    _instruction.dscnt = 0
+
+            self._instructions_at_index[loop][vmfma_index + 1].append(_instruction)
 ```
 
-**Step 4**: Update all comparisons
+**Step 4**: Remove `Timeline._resolve_issued_at_indices()`
+- Delete the method entirely
+- Remove the call from `Timeline.__init__`
+
+**Step 5**: Update all comparisons
 - Find all `issued_at < `, `issued_at > `, `issued_at >= `, `issued_at <= `
-- Replace with SchedulePosition comparisons (should work due to `order=True`)
+- These should work unchanged due to `order=True` generating tuple-style comparisons
+- Replace `float('inf')` and `float('-inf')` sentinel values with sentinel SchedulePosition instances (e.g., `SchedulePosition(loop_index=999, vmfma_index=999)` for inf)
 
-**Step 5**: Update floor() calls
-- `floor(self.issued_at)` becomes `self.issued_at.vmfma_index`
+**Step 6**: Update `floor()` calls and display formatting
+- `floor(self.issued_at) % self.num_vmfma` becomes `self.issued_at.display_index`
+- `f"idx={issued_at}"` stays the same, but `issued_at` is now `self.issued_at.display_index`
+- The special-case idx=-1 handling (`num_vmfma - 1 + 0.5 <= ...`) is eliminated — `display_index` returns `vmfma_index` directly, which is already -1
 
-**Step 6**: Update error message formatting
-- `f"idx={issued_at}"` becomes `f"idx={issued_at.vmfma_index}"`
+**Step 7**: Remove `num_vmfma` from instruction classes
+- With `loop_index` explicit, the `num_vmfma * loop_index` offset is gone
+- Cross-iteration detection (`self.needed_by.issued_at > self.num_vmfma`) becomes `self.needed_by.issued_at.loop_index > self.issued_at.loop_index`
+- The `num_vmfma` field on `LocalRead`, `Pack`, and `GlobalRead` can be removed
 
-**Step 7**: Run tests and fix edge cases
+**Step 8**: Run tests and fix edge cases
+```bash
+pytest Tensile/Tests/unit/test_CMSValidator*.py -v
+```
 
 ---
 
