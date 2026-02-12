@@ -315,6 +315,7 @@ namespace rocRoller
 
                 std::vector<int> dims;
                 auto             strides = tensor.strides();
+                auto             sizes   = tensor.sizes();
                 for(size_t i = 0; i < strides.size(); ++i)
                 {
                     auto strideExpr = std::make_shared<Expression::Expression>(strides[i]);
@@ -322,11 +323,21 @@ namespace rocRoller
                     dims.push_back(dim);
                 }
 
+                // Compute User size from SubDimensions: 1 + Σ(stride[i] * (size[i] - 1))
+                // This correctly handles non-contiguous memory layouts and avoids using
+                // tensor.limit() (extent), which would create redundant kernel arguments.
+                std::shared_ptr<Expression::Expression> userSize = Expression::literal(1u);
+                for(size_t i = 0; i < strides.size(); ++i)
+                {
+                    auto strideExpr = std::make_shared<Expression::Expression>(strides[i]);
+                    auto sizeExpr   = std::make_shared<Expression::Expression>(sizes[i]);
+                    auto contribution = strideExpr * (sizeExpr - Expression::literal(1u));
+                    userSize          = userSize + contribution;
+                }
+
                 auto linear = m_dim.at(tstore.getSrcTag());
                 auto user   = m_graph.coordinates.addElement(
-                    User(tstore.getSrcTag(),
-                         tensor.data()->name(),
-                         std::make_shared<Expression::Expression>(tensor.limit())));
+                    User(tstore.getSrcTag(), tensor.data()->name(), userSize));
 
                 m_graph.coordinates.addElement(Split(), std::vector<int>{linear}, dims);
                 m_graph.coordinates.addElement(Join(), dims, std::vector<int>{user});
@@ -364,6 +375,7 @@ namespace rocRoller
 
                 std::vector<int> dims;
                 auto const       strides        = tensor.strides();
+                auto const       sizes          = tensor.sizes();
                 auto const       literalStrides = tensor.literalStrides();
                 for(size_t i = 0; i < strides.size(); ++i)
                 {
@@ -381,11 +393,30 @@ namespace rocRoller
                     dims.push_back(dim);
                 }
 
+                // Compute User size from SubDimensions: 1 + Σ(stride[i] * (size[i] - 1))
+                // This correctly handles non-contiguous memory layouts and avoids using
+                // tensor.limit() (extent), which would create redundant kernel arguments.
+                std::shared_ptr<Expression::Expression> userSize = Expression::literal(1u);
+                for(size_t i = 0; i < strides.size(); ++i)
+                {
+                    std::shared_ptr<Expression::Expression> strideExpr;
+                    if(literalStrides.size() > i && literalStrides[i] > 0)
+                    {
+                        strideExpr = Expression::literal(literalStrides[i]);
+                    }
+                    else
+                    {
+                        strideExpr = std::make_shared<Expression::Expression>(strides[i]);
+                    }
+
+                    auto sizeExpr     = std::make_shared<Expression::Expression>(sizes[i]);
+                    auto contribution = strideExpr * (sizeExpr - Expression::literal(1u));
+                    userSize          = userSize + contribution;
+                }
+
                 auto tile = m_dim.at(tstore.getSrcTag());
                 auto user = m_graph.coordinates.addElement(
-                    User(tstore.getSrcTag(),
-                         tensor.data()->name(),
-                         std::make_shared<Expression::Expression>(tensor.limit())));
+                    User(tstore.getSrcTag(), tensor.data()->name(), userSize));
 
                 m_graph.coordinates.addElement(DestructMacroTile(), std::vector<int>{tile}, dims);
                 m_graph.coordinates.addElement(Join(), dims, std::vector<int>{user});
