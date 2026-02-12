@@ -491,6 +491,7 @@ def _benchmarkProblemType(problemTypeConfig, problemSizeGroupConfig, problemSize
                 "ForkParams": benchmarkStep.forkParams,
                 "ParamGroups": benchmarkStep.paramGroups,
                 "CustomKernels": benchmarkStep.customKernels,
+                "InternalSupportParams": benchmarkStep.internalSupportParams,
                 "CustomKernelWildcard": benchmarkStep.customKernelWildcard
             }
             LibraryIO.writeYAML(cachePath, cacheData)
