@@ -1674,10 +1674,10 @@ ROCSOLVER_KERNEL void latrd_upper_updateW_kernel(const rocblas_int mm,
     int idr       = bidr * threadsr + tidr;
 
     // select batch instance
-    T* A = load_ptr_batch<T>(AA, bid, shiftA, strideA);
-    T* W = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
+    T* A    = load_ptr_batch<T>(AA, bid, shiftA, strideA);
+    T* W    = load_ptr_batch<T>(pWA, bid, shiftW, strideW);
     T* work = pWorkA + bid * strideblk;
-    T* tau = pTauA + bid * strideP;
+    T* tau  = pTauA + bid * strideP;
 
     /* ------------------------
     formulate gemv problem:
@@ -1715,7 +1715,7 @@ ROCSOLVER_KERNEL void latrd_upper_updateW_kernel(const rocblas_int mm,
     int i, j;
 
     //define buffer types
-
+    //TODO: bounds should be sized correctly instead of set to max
     auto Y_buffer  = __builtin_amdgcn_make_buffer_rsrc(pY, 0,0xffffffff,0);
     auto X1_buffer = __builtin_amdgcn_make_buffer_rsrc(pX1,0,0xffffffff,0);
     auto X2_buffer = __builtin_amdgcn_make_buffer_rsrc(pX2,0,0xffffffff,0);
@@ -1783,7 +1783,7 @@ ROCSOLVER_KERNEL void latrd_upper_updateW_kernel(const rocblas_int mm,
             if constexpr(sizeof(T) == 1)
             {
                 a1_val = __builtin_amdgcn_raw_buffer_load_b8(A1_buffer, A1_addr, 0, 0);
-                a2_val = __builtin_amdgcn_raw_buffer_load_b32(A2_buffer, A2_addr, 0, 0);
+                a2_val = __builtin_amdgcn_raw_buffer_load_b8(A2_buffer, A2_addr, 0, 0);
             }
             else if constexpr(sizeof(T) == 2)
             {
